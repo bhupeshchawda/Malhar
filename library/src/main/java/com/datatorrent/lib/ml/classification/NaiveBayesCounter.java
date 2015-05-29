@@ -13,7 +13,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.datatorrent.lib.ml;
+package com.datatorrent.lib.ml.classification;
+
+import java.util.HashMap;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import com.datatorrent.api.BaseOperator;
 import com.datatorrent.api.DefaultInputPort;
@@ -47,27 +52,31 @@ import com.datatorrent.api.Context.OperatorContext;
 
 public class NaiveBayesCounter extends BaseOperator
 {
+	private static final Logger LOG = LoggerFactory.getLogger(NaiveBayesCounter.class);
+
 	/**
 	 * Object of type ModelData which will contain the intermediate model to be emitted at the end of the window
 	 */
-	protected transient ModelData m;
+	protected transient NaiveBayesModelStorage m;
+	boolean changedInWindow = false;
 
 	/**
 	 * Input port that takes a String.
 	 */
-	public final transient DefaultInputPort<String> data = new DefaultInputPort<String>() {
+	public final transient DefaultInputPort<HashMap<String, String>> input = 
+			new DefaultInputPort<HashMap<String, String>>() {
 
 		@Override
-		public void process(String in) {
-			String[] parts = (String[]) in.toString().split(",");
-			m.updateModel(parts);
+		public void process(HashMap<String, String> in) {
+			m.updateModel(in);
+			changedInWindow = true;
 		}
 	};
-	
+
 	/**
 	 * Output port that emits an object of type ModelData
 	 */
-	public final transient DefaultOutputPort<ModelData> counterOutput = new DefaultOutputPort<ModelData>();
+	public final transient DefaultOutputPort<NaiveBayesModelStorage> output = new DefaultOutputPort<NaiveBayesModelStorage>();
 
 	/**
 	 * Setup method for the operator. Initializes the ModelData object.
@@ -76,15 +85,20 @@ public class NaiveBayesCounter extends BaseOperator
 	public void setup(OperatorContext context) {
 		// TODO Auto-generated method stub
 		super.setup(context);
-		m = new ModelData();
+		m = new NaiveBayesModelStorage();
 	}
-	
+
 	/**
 	 * Emit ModelData m
 	 */
 	@Override
 	public void endWindow(){
-		counterOutput.emit(m);
+		if(changedInWindow){
+			output.emit(m);
+			changedInWindow = false;
+			LOG.info("Emitted. Instances = {}",m.instanceCount);
+		}
+
 	}
 
 	/**
@@ -93,5 +107,5 @@ public class NaiveBayesCounter extends BaseOperator
 	public void beginWindow(long windowId){
 		m.clear();
 	}
-	
+
 }

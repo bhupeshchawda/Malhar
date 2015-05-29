@@ -35,7 +35,7 @@ public class NaiveBayesModelAggregatorTest {
 		NaiveBayesModelAggregator<ModelData> nbAggOper = new NaiveBayesModelAggregator<ModelData>();
 		CollectorTestSink nbSink = new CollectorTestSink();
 
-		nbAggOper.counterOutput.setSink(nbSink);
+		nbAggOper.output.setSink(nbSink);
 
 		nbAggOper.setup(null);
 
@@ -122,16 +122,16 @@ public class NaiveBayesModelAggregatorTest {
 	 */
 	public ModelData prepareInputWindow0(){
 		ModelData m = new ModelData();
-		m.updateModel(new String[]{"1","2","3","44","55","A"});
-		m.updateModel(new String[]{"11","2","333","4","555","A"});
-		m.updateModel(new String[]{"1","2","3","4","5","A"});
-		m.updateModel(new String[]{"111","222","3","44","55","A"});
-		m.updateModel(new String[]{"1","22","3","4","5","B"});
-		m.updateModel(new String[]{"1","2","333","444","5","B"});
-		m.updateModel(new String[]{"111","2","3","4","5","B"});
-		m.updateModel(new String[]{"1","2","33","4","5","B"});
-		m.updateModel(new String[]{"1","2","3","4","5","C"});
-		m.updateModel(new String[]{"11","22","3","4","5","C"});
+		m.updateModel(ARFFReader.parseAsCsv("1,2,3,44,55,A"));
+		m.updateModel(ARFFReader.parseAsCsv("11,2,333,4,555,A"));
+		m.updateModel(ARFFReader.parseAsCsv("1,2,3,4,5,A"));
+		m.updateModel(ARFFReader.parseAsCsv("111,222,3,44,55,A"));
+		m.updateModel(ARFFReader.parseAsCsv("1,22,3,4,5,B"));
+		m.updateModel(ARFFReader.parseAsCsv("1,2,333,444,5,B"));
+		m.updateModel(ARFFReader.parseAsCsv("111,2,3,4,5,B"));
+		m.updateModel(ARFFReader.parseAsCsv("1,2,33,4,5,B"));
+		m.updateModel(ARFFReader.parseAsCsv("1,2,3,4,5,C"));
+		m.updateModel(ARFFReader.parseAsCsv("11,22,3,4,5,C"));
 		return m;
 	}
 
@@ -142,14 +142,14 @@ public class NaiveBayesModelAggregatorTest {
 	public ModelData prepareInputWindow1(){
 		ModelData m = new ModelData();
 		//Add more samples for existing Class - A
-		m.updateModel(new String[]{"1","2","3","44","55","A"});
-		m.updateModel(new String[]{"11","2","333","4","555","A"});
-		m.updateModel(new String[]{"1","2","3","4","5","A"});
-		m.updateModel(new String[]{"111","222","3","44","55","A"});
+		m.updateModel(ARFFReader.parseAsCsv("1,2,3,44,55,A"));
+		m.updateModel(ARFFReader.parseAsCsv("11,2,333,4,555,A"));
+		m.updateModel(ARFFReader.parseAsCsv("1,2,3,4,5,A"));
+		m.updateModel(ARFFReader.parseAsCsv("111,222,3,44,55,A"));
 		//Add a new Class - D
-		m.updateModel(new String[]{"1","2","3","44","55","D"});
-		m.updateModel(new String[]{"11","2","333","4","555","D"});
-		m.updateModel(new String[]{"1","2","3","4","5","D"});
+		m.updateModel(ARFFReader.parseAsCsv("1,2,3,44,55,D"));
+		m.updateModel(ARFFReader.parseAsCsv("11,2,333,4,555,D"));
+		m.updateModel(ARFFReader.parseAsCsv("1,2,3,4,5,D"));
 		return m;
 	}
 

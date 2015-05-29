@@ -13,7 +13,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.datatorrent.lib.ml;
+package com.datatorrent.lib.ml.classification;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import com.datatorrent.api.BaseOperator;
 import com.datatorrent.api.DefaultInputPort;
@@ -39,40 +42,56 @@ import com.datatorrent.api.Context.OperatorContext;
  * @since 0.3.3
  */
 
-public class NaiveBayesModelAggregator<V extends ModelData> extends BaseOperator
+public class NaiveBayesModelAggregator<V extends NaiveBayesModelStorage> extends BaseOperator
 {
-	protected ModelData m;
+
+	private static final Logger LOG = LoggerFactory.getLogger(NaiveBayesModelAggregator.class);
+
+	protected NaiveBayesModelStorage m;
+	protected boolean changeInThisWindow = true;
 
 	/**
 	 * Input port that takes the intermediate model for a window of data processed by the NaiveBayesCounter operator
 	 */
-	public final transient DefaultInputPort<ModelData> data = new DefaultInputPort<ModelData>() {
+	public final transient DefaultInputPort<NaiveBayesModelStorage> data = new DefaultInputPort<NaiveBayesModelStorage>() {
 
 		@Override
-		public void process(ModelData md) {
-			m.merge(md);
+		public void process(NaiveBayesModelStorage md) {
+			if(md.instanceCount > 0){
+				m.merge(md);
+				LOG.info("Merged. Total Instances = {}", m.instanceCount);
+				changeInThisWindow = true;
+			}
+			else{
+				LOG.info("0 Input instances.");
+			}
 		}
 	};
-	
+
 	/**
 	 * Output port that emits PMML model as a XML String
 	 */
-	public final transient DefaultOutputPort<String> counterOutput = new DefaultOutputPort<String>();
+	public final transient DefaultOutputPort<String> output = new DefaultOutputPort<String>();
 
 	@Override
 	public void setup(OperatorContext context) {
 		// TODO Auto-generated method stub
 		super.setup(context);
-		m = new ModelData();
+		m = new NaiveBayesModelStorage();
 	}
-	
+
 	/**
 	 * Emit the final PMML representation of the model in a XML String
 	 */
 	@Override
 	public void endWindow(){
-		String s = m.exportToPMML();
-		counterOutput.emit(s);
+		if(changeInThisWindow){
+			String s = m.exportToPMML();
+			output.emit(s);
+			LOG.info("Emitted Instances = {}", m.instanceCount);
+			changeInThisWindow = false;
+		}
+
 	}
 
 }

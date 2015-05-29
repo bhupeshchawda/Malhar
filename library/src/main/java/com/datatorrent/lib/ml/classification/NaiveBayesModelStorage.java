@@ -1,54 +1,49 @@
-package com.datatorrent.lib.ml;
+package com.datatorrent.lib.ml.classification;
 
 import java.io.IOException;
 import java.io.OutputStream;
-import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.HashMap;
 
 import javax.xml.bind.JAXBException;
 import javax.xml.bind.Marshaller;
-
 import org.dmg.pmml.*;
 import org.jpmml.model.JAXBUtil;
 
-//TODO Create a super class which will act as the superclass of this class
-
 /**
- * This class holds the model for Naive Bayes Classification algorithm.
+ * This class acts as the storage for the Naive Bayes Classification algorithm.
+ * Currently only supports categorical values for features. Can be extended for continuous features.
+ * 
+ * Changes for continuous features: 
+ * In PMML 4.2 onwards, there is a provision to store a distribution instead of just counts for each feature value appearing in the input instances.
+ * PMML allows 4 types of distributions to be stored. Gaussian, Poission, Uniform or AnyDistribution. 
+ * Since Weka assumes a Gaussian distribution, it may be fair to just assume a Gaussian distribution for the values of a continuous feature.
+ * For continuous features, the probability may now be computed directly from the distribution by giving the feature value of the test instance.
  * 
  * @author bhupesh
  *
  */
-public class ModelData implements Serializable{
+@SuppressWarnings("serial")
+public class NaiveBayesModelStorage extends ClassificationModelStorage{
 
-	/**
-	 * Serial version UID
-	 */
-	private static final long serialVersionUID = -6582920867670603439L;
-
-	/**
-	 * Number of instances of training samples received/processed.
-	 */
-	int instanceCount;
-	
 	/**
 	 * A map of String -> Integer keeping track of number of instances of each class that are received/processed
 	 */
 	HashMap<String, Integer> classCounts;
-	
-	/**
-	 * The feature table keeping the counts for <featureName, featureValue, ClassName> triplet
-	 */
-	HashMap<String, HashMap<String, HashMap<String, Integer>>> featureTable;
 
 	/**
-	 * Constructor for ModelData
+	 * The feature table keeping the counts for <featureName, featureValue, ClassName> triplet
+	 * TODO: This can be optimized by using primitive types like arrays. 
 	 */
-	public ModelData(){
+	HashMap<String, HashMap<String, HashMap<String, Integer>>> featureTableCategorical;
+
+	/**
+	 * Constructor
+	 */
+	public NaiveBayesModelStorage(){
 		instanceCount = 0;
 		classCounts = new HashMap<String, Integer>();
-		featureTable = new HashMap<String, HashMap<String,HashMap<String,Integer>>>();
+		featureTableCategorical = new HashMap<String, HashMap<String,HashMap<String,Integer>>>();
 	}
 
 	/**
@@ -57,22 +52,22 @@ public class ModelData implements Serializable{
 	public void clear(){
 		instanceCount = 0;
 		classCounts.clear();
-		featureTable.clear();
+		featureTableCategorical.clear();
 	}
-	
+
 	/**
 	 * Processes the input training sample.
 	 * Increments the instanceCount
 	 * Adds the class in this training sample to the classCounts map
 	 * Increments count for <featureName, featureValue, ClassName> triplet
 	 */
-	public void updateModel(String[] features){
-		if(features == null || features.length <= 1){
+	public void updateModel(HashMap<String, String> features){
+		if(features == null || features.keySet().size() <= 1){
 			return;
 		}
 		instanceCount ++;
 
-		String trainClass = features[features.length-1];
+		String trainClass = features.get(ARFFReader.attrClass);
 		if(classCounts.containsKey(trainClass)){
 			classCounts.put(trainClass, classCounts.get(trainClass)+1);
 		}
@@ -80,29 +75,31 @@ public class ModelData implements Serializable{
 			classCounts.put(trainClass, 1);
 		}
 
-		for(int i=0;i<features.length-1;i++){
-			String featureName = i+"";
-			String featureValue = features[i].trim();
+		for(String attributeName: features.keySet()){
+			if(attributeName.equalsIgnoreCase(ARFFReader.attrClass))	continue;
+			//			if(continuousAttributes.contains(attributeName))	continue; // Don't do the rest for Continuous attributes
+			String featureName = attributeName;
+			String featureValue = features.get(featureName).trim();
 
-			if(!featureTable.containsKey(featureName)){
+			if(!featureTableCategorical.containsKey(featureName)){
 				HashMap<String, HashMap<String, Integer>> featureValues = new HashMap<String, HashMap<String, Integer>>();
 				HashMap<String, Integer> classCounts = new HashMap<String, Integer>();
 				classCounts.put(trainClass, 1);
 				featureValues.put(featureValue, classCounts);
-				featureTable.put(featureName, featureValues);
+				featureTableCategorical.put(featureName, featureValues);
 			}
 			else{
-				if(!featureTable.get(featureName).containsKey(featureValue)){
+				if(!featureTableCategorical.get(featureName).containsKey(featureValue)){
 					HashMap<String, Integer> classCounts = new HashMap<String, Integer>();
 					classCounts.put(trainClass, 1);
-					featureTable.get(featureName).put(featureValue, classCounts);
+					featureTableCategorical.get(featureName).put(featureValue, classCounts);
 				}
 				else{
-					if(featureTable.get(featureName).get(featureValue).containsKey(trainClass)){
-						featureTable.get(featureName).get(featureValue).put(trainClass, featureTable.get(featureName).get(featureValue).get(trainClass)+1);							
+					if(featureTableCategorical.get(featureName).get(featureValue).containsKey(trainClass)){
+						featureTableCategorical.get(featureName).get(featureValue).put(trainClass, featureTableCategorical.get(featureName).get(featureValue).get(trainClass)+1);							
 					}
 					else{
-						featureTable.get(featureName).get(featureValue).put(trainClass, 1);
+						featureTableCategorical.get(featureName).get(featureValue).put(trainClass, 1);
 					}
 				}
 			}
@@ -115,22 +112,27 @@ public class ModelData implements Serializable{
 	 * jpmml-model library is used to convert internal data structures to a PMML XML model
 	 * @return PMML format in form of XML string
 	 */
-	
+
 	public String exportToPMML(){
+		if(this.instanceCount == 0){
+			return "";
+		}
 		Header header = new Header()
 		.setCopyright("DataTorrent")
 		.setDescription("Naive Bayes PMML");
 
 		DataDictionary dataDictionary  = new DataDictionary();
 		MiningSchema miningSchema = new MiningSchema();
-		
+
 		ArrayList<FieldName> fieldNames = new ArrayList<FieldName>();
-		for(int i=0;i<this.featureTable.size();i++){			
+		for(int i=0;i<this.featureTableCategorical.size();i++){			
 			FieldName fieldName = FieldName.create(i+"");
 			fieldNames.add(fieldName);
+			// TODO: Implement reading header of ARFF file. 
+			// This will allow us to identify the exact data types and op types for the data fields. 
 			dataDictionary.addDataFields(new DataField(fieldName, 
 					OpType.CATEGORICAL, 
-					DataType.DOUBLE));
+					DataType.INTEGER));
 			miningSchema.addMiningFields(new MiningField(fieldName));
 		}
 		dataDictionary.setNumberOfFields(dataDictionary.getDataFields().size());
@@ -138,13 +140,14 @@ public class ModelData implements Serializable{
 		FieldName fieldNameClass = FieldName.create("Class");
 		fieldNames.add(fieldNameClass);
 		miningSchema.addMiningFields(new MiningField(fieldNameClass).setUsageType(FieldUsageType.TARGET));
-		
+
 		BayesInputs bayesInputs = new BayesInputs();
 		ArrayList<BayesInput> bayesInputList = new ArrayList<BayesInput>();
 
-		for(String featureNum: featureTable.keySet()){
-			BayesInput bayesInput = new BayesInput(fieldNames.get(Integer.parseInt(featureNum)));
-			HashMap<String, HashMap<String, Integer>> featureValueTable = featureTable.get(featureNum);
+		//For Categorical Attributes
+		for(String featureName: featureTableCategorical.keySet()){
+			BayesInput bayesInput = new BayesInput(fieldNames.get(Integer.parseInt(featureName)));
+			HashMap<String, HashMap<String, Integer>> featureValueTable = featureTableCategorical.get(featureName);
 			PairCounts pairCounts = null;
 			ArrayList<PairCounts> pairCountList = new ArrayList<PairCounts>();
 			for(String featureValue: featureValueTable.keySet()){
@@ -163,6 +166,7 @@ public class ModelData implements Serializable{
 			bayesInput.addPairCounts(pairCountList.toArray(new PairCounts[pairCountList.size()]));
 			bayesInputList.add(bayesInput);
 		}
+
 		bayesInputs.addBayesInputs(bayesInputList.toArray(new BayesInput[bayesInputList.size()]));
 
 		BayesOutput bayesOutput = new BayesOutput();
@@ -204,13 +208,16 @@ public class ModelData implements Serializable{
 		return outputStream.toString();
 	}
 
-	
+
 	/**
 	 * Merges the input parameter ModelData m into the current object.
 	 * After this call, the current object will have all the information from the input parameter.
 	 * @param m
 	 */
-	public void merge(ModelData m){
+	public void merge(ClassificationModelStorage ctm){
+
+		NaiveBayesModelStorage m = (NaiveBayesModelStorage) ctm;
+		if(m.instanceCount == 0)	return;
 
 		instanceCount += m.instanceCount;
 
@@ -223,9 +230,9 @@ public class ModelData implements Serializable{
 			}
 		}
 
-		// Feature Table
-		HashMap<String, HashMap<String,HashMap<String,Integer>>> f1 = m.featureTable;
-		HashMap<String, HashMap<String,HashMap<String,Integer>>> f2 = this.featureTable;
+		// Feature Table Categorical
+		HashMap<String, HashMap<String,HashMap<String,Integer>>> f1 = m.featureTableCategorical;
+		HashMap<String, HashMap<String,HashMap<String,Integer>>> f2 = this.featureTableCategorical;
 
 		for(String fn: f1.keySet()){
 			if(f2.containsKey(fn)){
@@ -252,8 +259,53 @@ public class ModelData implements Serializable{
 			else{
 				f2.put(fn, f1.get(fn));
 			}
+		}		
+	}
+
+	/**
+	 * Evaluates the input testInstance using the current model
+	 * 
+	 * @return String - The class label of the testInstance as predicted using the model
+	 */
+	public String evaluate(HashMap<String, String> testInstance){
+		String predictedClass = "";
+		HashMap<String, Double> probabilities = new HashMap<String, Double>();
+
+		double total = 0;
+		for(String className: classCounts.keySet()){
+			double denom = classCounts.get(className);
+			double classScore = Math.log(denom) - Math.log(instanceCount);
+
+			for(String featureName: featureTableCategorical.keySet()){
+				int numValues = featureTableCategorical.get(featureName).keySet().size();
+				String featureValue = testInstance.get(featureName);
+				double numerator = 0;
+				if(featureTableCategorical.get(featureName).containsKey(featureValue) &&
+						featureTableCategorical.get(featureName).get(featureValue).containsKey(className)){
+					numerator = featureTableCategorical.get(featureName).get(featureValue).get(className);
+				}
+				else{
+					numerator = 0;
+				}
+				classScore += Math.log(numerator+1) - Math.log(denom + numValues);
+			}
+
+			probabilities.put(className, classScore);
+			total += Math.exp(classScore);
 		}
 
+		double max = 0;
+		for(String className: classCounts.keySet()){
+			double classScore = probabilities.get(className);
+			classScore = Math.exp(classScore - Math.log(total));
+			probabilities.put(className, classScore);
+			if(max < classScore){
+				max = classScore;
+				predictedClass = className;
+			}
+		}
+
+		return predictedClass;
 	}
 
 }
