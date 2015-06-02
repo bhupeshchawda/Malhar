@@ -1,14 +1,17 @@
 package com.datatorrent.lib.ml.classification;
 
 import java.io.IOException;
-
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
-
 import com.datatorrent.lib.io.fs.AbstractFileOutputOperator;
 
-public class FileAppendOutputOperator extends AbstractFileOutputOperator<String> {
+/**
+ * This is the Naive Bayes Output operator which writes the input string to a file on HDFS.
+ * This extends the AbstractFileOutputOperator and hence, only has the capability to append data, and cannot overwrite
+ *
+ */
+public class NBOutputAppendOperator extends AbstractFileOutputOperator<String> {
 
 	String fileName = "";
 

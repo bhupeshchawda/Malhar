@@ -1,4 +1,4 @@
-package com.datatorrent.lib.ml;
+package com.datatorrent.lib.ml.classification;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -20,19 +20,20 @@ import org.xml.sax.SAXException;
 import com.datatorrent.lib.testbench.CollectorTestSink;
 
 /**
- * Functional test for {@link NaiveBayesModelAggregator}
+ * Functional test for {@link NBModelAggregator}
  * 
  * Creates two windows of tuples and verifies the node output as well the intermediate state after merging multiple inputs.
  * @author bhupesh
  *
  */
 
-public class NaiveBayesModelAggregatorTest {
+public class NBModelAggregatorTest {
 
 	@Test
 	@SuppressWarnings({ "rawtypes", "unchecked" })
 	public void testNodeProcessing() throws ParserConfigurationException, SAXException, IOException{
-		NaiveBayesModelAggregator<ModelData> nbAggOper = new NaiveBayesModelAggregator<ModelData>();
+		NBConfig nbc = new NBConfig();
+		NBModelAggregator<NBModelStorage> nbAggOper = new NBModelAggregator<NBModelStorage>(nbc);
 		CollectorTestSink nbSink = new CollectorTestSink();
 
 		nbAggOper.output.setSink(nbSink);
@@ -42,27 +43,22 @@ public class NaiveBayesModelAggregatorTest {
 
 		//Window 0
 		nbAggOper.beginWindow(0);
-		ModelData modelDataInput0 = prepareInputWindow0();
+		NBModelStorage modelDataInput0 = prepareInputWindow0();
 		nbAggOper.data.process(modelDataInput0);
 		nbAggOper.endWindow();
 
-
-		//Checking whether the data structure is populated correctly on consuming input in Window 0
-		Assert.assertEquals(1, nbSink.collectedTuples.size());
+		Assert.assertEquals("Number of tuples at end of Window 0", 1, nbSink.collectedTuples.size());
 
 		//Window 1
 		nbAggOper.beginWindow(1);
-		ModelData modelDataInput1 = prepareInputWindow1();
+		NBModelStorage modelDataInput1 = prepareInputWindow1();
 		nbAggOper.data.process(modelDataInput1);
 		nbAggOper.endWindow();
 
-		//Checking whether the data structure is populated correctly on consuming input in Window 1
-		Assert.assertEquals(2, nbSink.collectedTuples.size());
+		Assert.assertEquals("Number of tuples at end of Window 1", 2, nbSink.collectedTuples.size());
 
 
-		//Check if XML is correct
 		verifyXML(nbSink.collectedTuples.get(1).toString());
-		//System.out.println("XML String - \n"+nbSink.collectedTuples.get(1));
 	}
 
 	/**
@@ -120,18 +116,18 @@ public class NaiveBayesModelAggregatorTest {
 	 * Helper method to create the input in Window 0
 	 * @return
 	 */
-	public ModelData prepareInputWindow0(){
-		ModelData m = new ModelData();
-		m.updateModel(ARFFReader.parseAsCsv("1,2,3,44,55,A"));
-		m.updateModel(ARFFReader.parseAsCsv("11,2,333,4,555,A"));
-		m.updateModel(ARFFReader.parseAsCsv("1,2,3,4,5,A"));
-		m.updateModel(ARFFReader.parseAsCsv("111,222,3,44,55,A"));
-		m.updateModel(ARFFReader.parseAsCsv("1,22,3,4,5,B"));
-		m.updateModel(ARFFReader.parseAsCsv("1,2,333,444,5,B"));
-		m.updateModel(ARFFReader.parseAsCsv("111,2,3,4,5,B"));
-		m.updateModel(ARFFReader.parseAsCsv("1,2,33,4,5,B"));
-		m.updateModel(ARFFReader.parseAsCsv("1,2,3,4,5,C"));
-		m.updateModel(ARFFReader.parseAsCsv("11,22,3,4,5,C"));
+	public NBModelStorage prepareInputWindow0(){
+		NBModelStorage m = new NBModelStorage();
+		m.updateModel(NBInputReader.parseAsCsv("1,2,3,44,55,A"));
+		m.updateModel(NBInputReader.parseAsCsv("11,2,333,4,555,A"));
+		m.updateModel(NBInputReader.parseAsCsv("1,2,3,4,5,A"));
+		m.updateModel(NBInputReader.parseAsCsv("111,222,3,44,55,A"));
+		m.updateModel(NBInputReader.parseAsCsv("1,22,3,4,5,B"));
+		m.updateModel(NBInputReader.parseAsCsv("1,2,333,444,5,B"));
+		m.updateModel(NBInputReader.parseAsCsv("111,2,3,4,5,B"));
+		m.updateModel(NBInputReader.parseAsCsv("1,2,33,4,5,B"));
+		m.updateModel(NBInputReader.parseAsCsv("1,2,3,4,5,C"));
+		m.updateModel(NBInputReader.parseAsCsv("11,22,3,4,5,C"));
 		return m;
 	}
 
@@ -139,17 +135,17 @@ public class NaiveBayesModelAggregatorTest {
 	 * Helper method to create the input in Window 1
 	 * @return
 	 */
-	public ModelData prepareInputWindow1(){
-		ModelData m = new ModelData();
+	public NBModelStorage prepareInputWindow1(){
+		NBModelStorage m = new NBModelStorage();
 		//Add more samples for existing Class - A
-		m.updateModel(ARFFReader.parseAsCsv("1,2,3,44,55,A"));
-		m.updateModel(ARFFReader.parseAsCsv("11,2,333,4,555,A"));
-		m.updateModel(ARFFReader.parseAsCsv("1,2,3,4,5,A"));
-		m.updateModel(ARFFReader.parseAsCsv("111,222,3,44,55,A"));
+		m.updateModel(NBInputReader.parseAsCsv("1,2,3,44,55,A"));
+		m.updateModel(NBInputReader.parseAsCsv("11,2,333,4,555,A"));
+		m.updateModel(NBInputReader.parseAsCsv("1,2,3,4,5,A"));
+		m.updateModel(NBInputReader.parseAsCsv("111,222,3,44,55,A"));
 		//Add a new Class - D
-		m.updateModel(ARFFReader.parseAsCsv("1,2,3,44,55,D"));
-		m.updateModel(ARFFReader.parseAsCsv("11,2,333,4,555,D"));
-		m.updateModel(ARFFReader.parseAsCsv("1,2,3,4,5,D"));
+		m.updateModel(NBInputReader.parseAsCsv("1,2,3,44,55,D"));
+		m.updateModel(NBInputReader.parseAsCsv("11,2,333,4,555,D"));
+		m.updateModel(NBInputReader.parseAsCsv("1,2,3,4,5,D"));
 		return m;
 	}
 

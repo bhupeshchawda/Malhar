@@ -1,17 +1,17 @@
-package com.datatorrent.lib.ml;
+package com.datatorrent.lib.ml.classification;
 
 import org.junit.Assert;
 import org.junit.Test;
-
+import com.datatorrent.lib.ml.classification.*;
 import com.datatorrent.lib.testbench.CollectorTestSink;
 
 /**
- * Functional test for {@link NaiveBayesCounter}
+ * Functional test for {@link NBCounter}
  * Creates a window of 10 tuples and verifies the corresponding output.
  * @author bhupesh
  *
  */
-public class NaiveBayesCounterTest {
+public class NBCounterTest {
 
 	/**
 	 * Test processing of the NaiveBayesCounter operator node
@@ -19,7 +19,8 @@ public class NaiveBayesCounterTest {
 	@Test
 	@SuppressWarnings({ "rawtypes", "unchecked" })
 	public void testNodeProcessing(){
-		NaiveBayesCounter nbOper = new NaiveBayesCounter();
+		NBConfig nbc = new NBConfig(); 
+		NBCounter nbOper = new NBCounter(nbc);
 		CollectorTestSink nbSink = new CollectorTestSink();
 		
 		nbOper.output.setSink(nbSink);
@@ -32,21 +33,21 @@ public class NaiveBayesCounterTest {
 		nbOper.setup(null);
 		nbOper.beginWindow(0);
 		
-		nbOper.input.process(ARFFReader.parseAsCsv("1,2,3,44,55,A"));
-		nbOper.input.process(ARFFReader.parseAsCsv("11,2,333,4,555,A"));
-		nbOper.input.process(ARFFReader.parseAsCsv("1,2,3,4,5,A"));
-		nbOper.input.process(ARFFReader.parseAsCsv("111,222,3,44,55,A"));
-		nbOper.input.process(ARFFReader.parseAsCsv("1,22,3,4,5,B"));
-		nbOper.input.process(ARFFReader.parseAsCsv("1,2,333,444,5,B"));
-		nbOper.input.process(ARFFReader.parseAsCsv("111,2,3,4,5,B"));
-		nbOper.input.process(ARFFReader.parseAsCsv("1,2,33,4,5,B"));		
-		nbOper.input.process(ARFFReader.parseAsCsv("1,2,3,4,5,C"));
-		nbOper.input.process(ARFFReader.parseAsCsv("11,22,3,4,5,C"));
+		nbOper.input.process(NBInputReader.parseAsCsv("1,2,3,44,55,A"));
+		nbOper.input.process(NBInputReader.parseAsCsv("11,2,333,4,555,A"));
+		nbOper.input.process(NBInputReader.parseAsCsv("1,2,3,4,5,A"));
+		nbOper.input.process(NBInputReader.parseAsCsv("111,222,3,44,55,A"));
+		nbOper.input.process(NBInputReader.parseAsCsv("1,22,3,4,5,B"));
+		nbOper.input.process(NBInputReader.parseAsCsv("1,2,333,444,5,B"));
+		nbOper.input.process(NBInputReader.parseAsCsv("111,2,3,4,5,B"));
+		nbOper.input.process(NBInputReader.parseAsCsv("1,2,33,4,5,B"));		
+		nbOper.input.process(NBInputReader.parseAsCsv("1,2,3,4,5,C"));
+		nbOper.input.process(NBInputReader.parseAsCsv("11,22,3,4,5,C"));
 		
 		nbOper.endWindow();
 		
 		Assert.assertEquals(1, nbSink.collectedTuples.size());
-		ModelData m = (ModelData) nbSink.collectedTuples.get(0);
+		NBModelStorage m = (NBModelStorage) nbSink.collectedTuples.get(0);
 		Assert.assertEquals(numInstances, m.instanceCount);
 		Assert.assertEquals(numClasses, m.classCounts.keySet().size());
 		Assert.assertEquals(numAttributes, m.featureTableCategorical.keySet().size());

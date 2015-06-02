@@ -7,6 +7,7 @@ import java.util.HashMap;
 
 import javax.xml.bind.JAXBException;
 import javax.xml.bind.Marshaller;
+
 import org.dmg.pmml.*;
 import org.jpmml.model.JAXBUtil;
 
@@ -14,7 +15,7 @@ import org.jpmml.model.JAXBUtil;
  * This class acts as the storage for the Naive Bayes Classification algorithm.
  * Currently only supports categorical values for features. Can be extended for continuous features.
  * 
- * Changes for continuous features: 
+ * TODO Changes for continuous features: 
  * In PMML 4.2 onwards, there is a provision to store a distribution instead of just counts for each feature value appearing in the input instances.
  * PMML allows 4 types of distributions to be stored. Gaussian, Poission, Uniform or AnyDistribution. 
  * Since Weka assumes a Gaussian distribution, it may be fair to just assume a Gaussian distribution for the values of a continuous feature.
@@ -24,26 +25,26 @@ import org.jpmml.model.JAXBUtil;
  *
  */
 @SuppressWarnings("serial")
-public class NaiveBayesModelStorage extends ClassificationModelStorage{
+public class NBModelStorage extends ClassificationModelStorage{
 
 	/**
 	 * A map of String -> Integer keeping track of number of instances of each class that are received/processed
 	 */
-	HashMap<String, Integer> classCounts;
+	HashMap<String, Long> classCounts;
 
 	/**
 	 * The feature table keeping the counts for <featureName, featureValue, ClassName> triplet
 	 * TODO: This can be optimized by using primitive types like arrays. 
 	 */
-	HashMap<String, HashMap<String, HashMap<String, Integer>>> featureTableCategorical;
+	HashMap<String, HashMap<String, HashMap<String, Long>>> featureTableCategorical;
 
 	/**
 	 * Constructor
 	 */
-	public NaiveBayesModelStorage(){
+	public NBModelStorage(){
 		instanceCount = 0;
-		classCounts = new HashMap<String, Integer>();
-		featureTableCategorical = new HashMap<String, HashMap<String,HashMap<String,Integer>>>();
+		classCounts = new HashMap<String, Long>();
+		featureTableCategorical = new HashMap<String, HashMap<String,HashMap<String,Long>>>();
 	}
 
 	/**
@@ -61,37 +62,35 @@ public class NaiveBayesModelStorage extends ClassificationModelStorage{
 	 * Adds the class in this training sample to the classCounts map
 	 * Increments count for <featureName, featureValue, ClassName> triplet
 	 */
-	public void updateModel(HashMap<String, String> features){
-		if(features == null || features.keySet().size() <= 1){
+	public void updateModel(String[] features){
+		if(features == null || features.length <= 1){
 			return;
 		}
 		instanceCount ++;
 
-		String trainClass = features.get(ARFFReader.attrClass);
+		String trainClass = features[features.length-1];
 		if(classCounts.containsKey(trainClass)){
 			classCounts.put(trainClass, classCounts.get(trainClass)+1);
 		}
 		else{
-			classCounts.put(trainClass, 1);
+			classCounts.put(trainClass, 1L);
 		}
 
-		for(String attributeName: features.keySet()){
-			if(attributeName.equalsIgnoreCase(ARFFReader.attrClass))	continue;
-			//			if(continuousAttributes.contains(attributeName))	continue; // Don't do the rest for Continuous attributes
-			String featureName = attributeName;
-			String featureValue = features.get(featureName).trim();
+		for(int i=0;i<features.length-1;i++){
+			String featureName = i+"";
+			String featureValue = features[i];
 
 			if(!featureTableCategorical.containsKey(featureName)){
-				HashMap<String, HashMap<String, Integer>> featureValues = new HashMap<String, HashMap<String, Integer>>();
-				HashMap<String, Integer> classCounts = new HashMap<String, Integer>();
-				classCounts.put(trainClass, 1);
+				HashMap<String, HashMap<String, Long>> featureValues = new HashMap<String, HashMap<String, Long>>();
+				HashMap<String, Long> classCounts = new HashMap<String, Long>();
+				classCounts.put(trainClass, 1L);
 				featureValues.put(featureValue, classCounts);
 				featureTableCategorical.put(featureName, featureValues);
 			}
 			else{
 				if(!featureTableCategorical.get(featureName).containsKey(featureValue)){
-					HashMap<String, Integer> classCounts = new HashMap<String, Integer>();
-					classCounts.put(trainClass, 1);
+					HashMap<String, Long> classCounts = new HashMap<String, Long>();
+					classCounts.put(trainClass, 1L);
 					featureTableCategorical.get(featureName).put(featureValue, classCounts);
 				}
 				else{
@@ -99,7 +98,7 @@ public class NaiveBayesModelStorage extends ClassificationModelStorage{
 						featureTableCategorical.get(featureName).get(featureValue).put(trainClass, featureTableCategorical.get(featureName).get(featureValue).get(trainClass)+1);							
 					}
 					else{
-						featureTableCategorical.get(featureName).get(featureValue).put(trainClass, 1);
+						featureTableCategorical.get(featureName).get(featureValue).put(trainClass, 1L);
 					}
 				}
 			}
@@ -147,11 +146,11 @@ public class NaiveBayesModelStorage extends ClassificationModelStorage{
 		//For Categorical Attributes
 		for(String featureName: featureTableCategorical.keySet()){
 			BayesInput bayesInput = new BayesInput(fieldNames.get(Integer.parseInt(featureName)));
-			HashMap<String, HashMap<String, Integer>> featureValueTable = featureTableCategorical.get(featureName);
+			HashMap<String, HashMap<String, Long>> featureValueTable = featureTableCategorical.get(featureName);
 			PairCounts pairCounts = null;
 			ArrayList<PairCounts> pairCountList = new ArrayList<PairCounts>();
 			for(String featureValue: featureValueTable.keySet()){
-				HashMap<String, Integer> classTable = featureValueTable.get(featureValue);
+				HashMap<String, Long> classTable = featureValueTable.get(featureValue);
 
 				TargetValueCounts targetValueCounts = new TargetValueCounts();
 				ArrayList<TargetValueCount> targetValueCountList = new ArrayList<TargetValueCount>();
@@ -214,9 +213,10 @@ public class NaiveBayesModelStorage extends ClassificationModelStorage{
 	 * After this call, the current object will have all the information from the input parameter.
 	 * @param m
 	 */
+	@SuppressWarnings("unchecked")
 	public void merge(ClassificationModelStorage ctm){
 
-		NaiveBayesModelStorage m = (NaiveBayesModelStorage) ctm;
+		NBModelStorage m = (NBModelStorage) ctm;
 		if(m.instanceCount == 0)	return;
 
 		instanceCount += m.instanceCount;
@@ -231,17 +231,17 @@ public class NaiveBayesModelStorage extends ClassificationModelStorage{
 		}
 
 		// Feature Table Categorical
-		HashMap<String, HashMap<String,HashMap<String,Integer>>> f1 = m.featureTableCategorical;
-		HashMap<String, HashMap<String,HashMap<String,Integer>>> f2 = this.featureTableCategorical;
+		HashMap<String, HashMap<String,HashMap<String,Long>>> f1 = m.featureTableCategorical;
+		HashMap<String, HashMap<String,HashMap<String,Long>>> f2 = this.featureTableCategorical;
 
 		for(String fn: f1.keySet()){
 			if(f2.containsKey(fn)){
-				HashMap<String, HashMap<String, Integer>> vfn2 = f2.get(fn);
-				HashMap<String, HashMap<String, Integer>> vfn1 = f1.get(fn);
-				for(String fv: f1.get(fn).keySet()){
+				HashMap<String, HashMap<String, Long>> vfn2 = f2.get(fn);
+				HashMap<String, HashMap<String, Long>> vfn1 = f1.get(fn);
+				for(String fv: vfn1.keySet()){
 					if(vfn2.containsKey(fv)){
-						HashMap<String, Integer> vfv2 = vfn2.get(fv);
-						HashMap<String, Integer> vfv1 = vfn1.get(fv);
+						HashMap<String, Long> vfv2 = vfn2.get(fv);
+						HashMap<String, Long> vfv1 = vfn1.get(fv);
 						for(String c: f1.get(fn).get(fv).keySet()){
 							if(vfv2.containsKey(c)){
 								vfv2.put(c, vfv2.get(c)+vfv1.get(c));
@@ -252,12 +252,24 @@ public class NaiveBayesModelStorage extends ClassificationModelStorage{
 						}
 					}
 					else{
-						vfn2.put(fv, vfn1.get(fv));
+						HashMap<String, Long> tc = new HashMap<String, Long>();
+						for(String c: vfn1.get(fv).keySet()){
+							tc.put(c, vfn1.get(fv).get(c).longValue());
+						}
+						vfn2.put(fv, tc);
 					}
 				}
 			}
 			else{
-				f2.put(fn, f1.get(fn));
+				HashMap<String, HashMap<String, Long>> tv = new HashMap<String, HashMap<String,Long>>();				
+				for(String v: f1.get(fn).keySet()){
+					HashMap<String, Long> tc = new HashMap<String, Long>();
+					for(String c: f1.get(fn).get(v).keySet()){
+						tc.put(c, f1.get(fn).get(v).get(c));
+					}
+					tv.put(v, tc);
+				}
+				f2.put(fn, tv);
 			}
 		}		
 	}
@@ -267,7 +279,7 @@ public class NaiveBayesModelStorage extends ClassificationModelStorage{
 	 * 
 	 * @return String - The class label of the testInstance as predicted using the model
 	 */
-	public String evaluate(HashMap<String, String> testInstance){
+	public String evaluate(String[] testInstance){
 		String predictedClass = "";
 		HashMap<String, Double> probabilities = new HashMap<String, Double>();
 
@@ -278,7 +290,7 @@ public class NaiveBayesModelStorage extends ClassificationModelStorage{
 
 			for(String featureName: featureTableCategorical.keySet()){
 				int numValues = featureTableCategorical.get(featureName).keySet().size();
-				String featureValue = testInstance.get(featureName);
+				String featureValue = testInstance[Integer.parseInt(featureName)];
 				double numerator = 0;
 				if(featureTableCategorical.get(featureName).containsKey(featureValue) &&
 						featureTableCategorical.get(featureName).get(featureValue).containsKey(className)){

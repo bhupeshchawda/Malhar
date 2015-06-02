@@ -4,21 +4,21 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
-
 import org.apache.hadoop.fs.Path;
-
 import com.datatorrent.api.DefaultOutputPort;
 import com.datatorrent.lib.io.fs.AbstractFileInputOperator;
 
+/**
+ * This is the File input operator responsible for reading a file on HDFS and sends a line as a tuple
+ * 
+ * @author 
+ *
+ */
 public class FileInputOperator extends AbstractFileInputOperator<String>{
 
     public final transient DefaultOutputPort<String> output = new DefaultOutputPort<String>();
     private transient BufferedReader br = null;
 
-    public FileInputOperator(){
-    	setEmitBatchSize(10);
-    }
-    
     @Override
     protected InputStream openFile(Path path) throws IOException
     {
@@ -35,7 +35,6 @@ public class FileInputOperator extends AbstractFileInputOperator<String>{
       br = null;
     }
 
-	
 	@Override
 	protected String readEntity() throws IOException {
 		return br.readLine();

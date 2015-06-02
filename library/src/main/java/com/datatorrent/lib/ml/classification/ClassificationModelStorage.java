@@ -42,7 +42,7 @@ public abstract class ClassificationModelStorage implements Serializable{
 	 * Processes the input training sample.
 	 * Updates the model after looking at the input training instance.
 	 */
-	public abstract void updateModel(HashMap<String, String> features);
+	public abstract void updateModel(String[] features);
 
 	/**
 	 * Merges the input parameter ClassificationModelStorage s into the current object.
@@ -66,6 +66,6 @@ public abstract class ClassificationModelStorage implements Serializable{
 	 * @param testInstance
 	 * @return String - The class label which is predicted for the testInstance
 	 */
-	public abstract String evaluate(HashMap<String, String> testInstance);
+	public abstract String evaluate(String[] testInstance);
 	
 }

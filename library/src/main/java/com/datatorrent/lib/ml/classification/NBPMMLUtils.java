@@ -18,12 +18,11 @@ import org.jpmml.model.JAXBUtil;
 
 /**
  * This class provides utility functions for Naive Bayes classification.
- * 
  * @author bhupesh
  *
  */
 
-public class NaiveBayesPMMLUtils {
+public class NBPMMLUtils {
 	
 	/**
 	 * Extracts the NaiveBayesModelStorage object from the PMML xml file stored at the parameter pmmlFilePath
@@ -31,7 +30,7 @@ public class NaiveBayesPMMLUtils {
 	 * @param pmmlFilePath
 	 * @return an instance of NaiveBayesModelStorage - hosls a Naive Bayes model represented by the Pmml file
 	 */
-	public static NaiveBayesModelStorage getModelFromPMMLFile(String pmmlFilePath){
+	public static NBModelStorage getModelFromPMMLFile(String pmmlFilePath){
 		try{
 			Configuration conf = new Configuration();
 			conf.addResource(new Path("/usr/local/hadoop/etc/hadoop/core-site.xml"));
@@ -40,7 +39,7 @@ public class NaiveBayesPMMLUtils {
 //			BufferedReader in = new BufferedReader(new FileReader(pmmlFilePath));
 			Unmarshaller unmarshaller = JAXBUtil.createUnmarshaller();
 			PMML pmml = (PMML) unmarshaller.unmarshal(in);
-			NaiveBayesModelStorage m = getModelFromPMML(pmml);
+			NBModelStorage m = getModelFromPMML(pmml);
 			return m;
 		} catch (Exception e) {
 			e.printStackTrace();
@@ -54,36 +53,36 @@ public class NaiveBayesPMMLUtils {
 	 * @param pmml
 	 * @return an instance of NaiveBayesModelStorage
 	 */
-	public static NaiveBayesModelStorage getModelFromPMML(PMML pmml){
-		NaiveBayesModelStorage m = new NaiveBayesModelStorage();
+	public static NBModelStorage getModelFromPMML(PMML pmml){
+		NBModelStorage m = new NBModelStorage();
 		NaiveBayesModel model = (NaiveBayesModel) pmml.getModels().get(0);
 		BayesInputs bayesInputs = model.getBayesInputs();
 		for(BayesInput bayesInput: bayesInputs){
 			String fieldName = bayesInput.getFieldName().getValue();
 			ArrayList<PairCounts> pcs = (ArrayList<PairCounts>) bayesInput.getPairCounts();
-			HashMap<String, HashMap<String, Integer>> featureValueMap = null;
+			HashMap<String, HashMap<String, Long>> featureValueMap = null;
 			if(m.featureTableCategorical.containsKey(fieldName)){
 				featureValueMap = m.featureTableCategorical.get(fieldName);
 			}
 			else{
-				featureValueMap = new HashMap<String, HashMap<String,Integer>>();
+				featureValueMap = new HashMap<String, HashMap<String,Long>>();
 			}
 
 			for(PairCounts pc: pcs){
 				String fieldValue = pc.getValue();
 				TargetValueCounts tvcs = pc.getTargetValueCounts();
 
-				HashMap<String, Integer> classCountMap = null;
+				HashMap<String, Long> classCountMap = null;
 				if(featureValueMap.containsKey(fieldValue)){
 					classCountMap = featureValueMap.get(fieldValue);
 				}
 				else{
-					classCountMap = new HashMap<String, Integer>();
+					classCountMap = new HashMap<String, Long>();
 				}
 
 				for(TargetValueCount tvc: tvcs){
 					String className = tvc.getValue();
-					int count = (int) tvc.getCount();
+					long count = (long) tvc.getCount();
 					if(classCountMap.containsKey(className)){
 						classCountMap.put(className, classCountMap.get(className)+count);
 					}
