@@ -1,11 +1,14 @@
 package com.datatorrent.lib.ml.classification;
 
 import java.io.IOException;
+import java.util.Date;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
+import org.apache.log4j.helpers.LogLog;
+import org.eclipse.jetty.util.log.Log;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -23,64 +26,126 @@ public class NBOutputPerWindowOperator extends BaseOperator {
 	@SuppressWarnings("unused")
 	private static final Logger LOG = LoggerFactory.getLogger(NBOutputPerWindowOperator.class);
 
-	String fileName;
-	String filePath;
 	String tuple = "";
-	boolean overwrite = false;
 	NBConfig nbc = null;
-	
+	transient FSDataOutputStream[] kFoldOuts = null;
+	transient FSDataOutputStream trainOut = null;
+	transient FSDataOutputStream evalOut = null;
+	transient FileSystem fs = null;
+
 	int folds;
 	String[] xmlModels;
+	boolean changeInWindow = false;
 
 	public NBOutputPerWindowOperator(){
 	}
-	
+
 	public NBOutputPerWindowOperator(NBConfig nbc){
 		this.nbc = nbc;
 	}
-	
-	public final transient DefaultInputPort<String> input = new DefaultInputPort<String>() {
+
+	// For Only Evaluation
+	public final transient DefaultInputPort<String> inStringWriter = 
+			new DefaultInputPort<String>() {
 		@Override
-		public void process(String t) {
-			tuple = t;			
+		public void process(String tuple) {
+			if(tuple != null && tuple.trim().length() != 0){
+				writeData(nbc.getOutputResultDir(), nbc.getOutputResultFileName(), false, tuple);
+			}
 		}
 	};
-	
-	public final transient DefaultInputPort<MapEntry<Integer, String>> kFoldInput = 
+
+	// Training. K fold or plain training
+	public final transient DefaultInputPort<MapEntry<Integer, String>> inMultiWriter = 
 			new DefaultInputPort<MapEntry<Integer, String>>() {
 		@Override
 		public void process(MapEntry<Integer, String> xmlModel) {
-			int fold = xmlModel.getK();
-			xmlModels[fold] = xmlModel.getV();
+			if(xmlModel.getV() == null){
+				LOG.info("Received Training Done signal");
+				writeModels();
+				try{
+					//Write done file
+					Path doneFile = new Path("/.done");
+					Configuration conf = new Configuration();
+//					conf.addResource(new Path("/usr/local/hadoop/etc/hadoop/core-site.xml"));
+					FileSystem fs = FileSystem.get(conf);
+					fs.create(doneFile);
+				}catch(IOException e){
+					e.printStackTrace();
+					throw new RuntimeException();
+				}
+				return;
+			}
+			if(nbc.isKFoldPartition() && !xmlModel.getK().equals(-1)){ // Only Store. Write at end window
+				int fold = xmlModel.getK();
+				xmlModels[fold] = xmlModel.getV();
+				changeInWindow = true;
+			}
+			if(nbc.isOnlyTrain() && xmlModel.getK().equals(-1)){ // Only Store. Write at end window
+				tuple = xmlModel.getV();
+				changeInWindow = true;
+			}
 		}
 	};
 
 
+//	public final transient DefaultInputPort<Boolean> inDone = 
+//			new DefaultInputPort<Boolean>() {
+//
+//		@Override
+//		public void process(Boolean b) {
+//			if(b.equals(true)){
+//			}
+//		}	
+//	};
+
 	@Override
 	public void setup(OperatorContext context){
+		try {
+			fs = getFSInstance();
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
 		if(nbc.isKFoldPartition()){
 			folds = nbc.getNumFolds();
 			xmlModels = new String[folds];
+			kFoldOuts = new FSDataOutputStream[folds];
+		}
+	}
+	
+	@Override
+	public void teardown() {
+		super.teardown();
+		try {
+			fs.close();
+		} catch (IOException e) {
+			e.printStackTrace();
 		}
 	}
 
 	@Override
 	public void endWindow(){
-		if(nbc.isKFoldPartition()){
-			for(int i=0;i<xmlModels.length;i++){
-				writeData(fileName+"."+i, xmlModels[i]);
-			}
-		}
-		else{
-			writeData(fileName, tuple);
+		if(changeInWindow){
+			changeInWindow = false;
 		}
 	}
 
-	public void writeData(String fileName, String tuple){
+	public void writeModels(){
+		if(nbc.isKFoldPartition()){
+			for(int i=0;i<xmlModels.length;i++){
+				writeData(nbc.getOutputModelDir(), nbc.getOutputModelFileName()+"."+i, true, xmlModels[i]);
+			}
+		}
+		if(nbc.isOnlyTrain()){			
+			writeData(nbc.getOutputModelDir(), nbc.getOutputModelFileName(), true, tuple);
+		}
+	}
+	
+	public void writeData(String filePath, String fileName, boolean overwrite, String tuple){
+
+		FSDataOutputStream out = null;
 		try {
-			FileSystem fs = getFSInstance();
 			Path writePath = new Path(filePath + Path.SEPARATOR + fileName);
-			FSDataOutputStream out = null;
 			if(overwrite){
 				out = fs.create(writePath, overwrite);
 			}
@@ -96,27 +161,16 @@ public class NBOutputPerWindowOperator extends BaseOperator {
 			out.writeBytes(tuple);
 			out.hflush();
 			out.close();
+
 		} catch (IOException e) {
 			e.printStackTrace();
 		}	
 	}
 
-	public void setFileName(String fileName) {
-		this.fileName = fileName;
-	}
-
-	public void setFilePath(String filePath) {
-		this.filePath = filePath;
-	}
-
-	public void setOverwrite(boolean overwrite) {
-		this.overwrite = overwrite;
-	}
-
 	public FileSystem getFSInstance() throws IOException
 	{
 		Configuration conf = new Configuration();
-		conf.addResource(new Path("/usr/local/hadoop/etc/hadoop/core-site.xml"));
+//		conf.addResource(new Path("/usr/local/hadoop/etc/hadoop/core-site.xml"));
 		return FileSystem.get(conf);
 	}
 

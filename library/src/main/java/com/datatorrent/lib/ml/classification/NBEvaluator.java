@@ -1,7 +1,11 @@
 package com.datatorrent.lib.ml.classification;
 
+import java.util.Arrays;
+
+import org.apache.hadoop.fs.Path;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
 import com.datatorrent.api.BaseOperator;
 import com.datatorrent.api.DefaultInputPort;
 import com.datatorrent.api.DefaultOutputPort;
@@ -21,16 +25,13 @@ public class NBEvaluator extends BaseOperator{
 	private static final Logger LOG = LoggerFactory.getLogger(NBEvaluator.class);
 
 	transient String[] attributes = null;
-	String pmmlFilePath;
 	transient NBModelStorage m;
 	double correct = 0.0;
 	double total = 0.0;
 
-	//	double windowCorrect = 0.0;
-	//	double windowTotal = 0.0;
-
 	NBConfig nbc = null;
-
+	boolean initializedModels = false;
+	boolean changeInWindow = false;
 	transient NBModelStorage[] kFoldModels;
 	int folds = 0;
 	long[] kFoldCorrect;
@@ -43,14 +44,10 @@ public class NBEvaluator extends BaseOperator{
 		this.nbc = nbc;
 	}
 
-	public void setPmmlFilePath(String path){
-		this.pmmlFilePath = path;
-	}
-
 	/**
 	 * Output port that emits the predicted class along with the cumulative accuracy
 	 */
-	public final transient DefaultOutputPort<String> output = new DefaultOutputPort<String>();
+	public final transient DefaultOutputPort<String> outToWriter = new DefaultOutputPort<String>();
 
 	/**
 	 * Output port that emits statistics per window. 
@@ -59,61 +56,71 @@ public class NBEvaluator extends BaseOperator{
 	public final transient DefaultOutputPort<String> stats = new DefaultOutputPort<String>();
 
 	/**
-	 * Input port for evaluation of test data against a single Naive Bayes model. 
-	 * This input port receives a String[]. 
-	 * The input tuple contains the attributes with the class value as the last element in the array.
-	 */
-	public final transient DefaultInputPort<String[]> input = new DefaultInputPort<String[]>(){
-
-		@Override
-		public void process(String[] instance) {
-			String resultClass = m.evaluate(instance);
-			if(resultClass.equalsIgnoreCase(instance[instance.length-1])){
-				correct += 1;
-			}
-			total += 1;
-			output.emit("Result Class:" + resultClass + "\tAccuracy: " + correct/total + "\n");
-
-		}
-	};
-
-	/**
 	 * Input port for k-fold cross validation flow. This is for identifying the accuracy of the Naive Bayes model.
 	 * This port receives an entry of the form <Integer, String[]>. 
 	 * The key in the entry points to the "fold" of the input data. 
 	 * In other words, it gives the model against which this input tuple (pointed to by the value) needs to be evaluated.
 	 */
-	public final transient DefaultInputPort<MapEntry<Integer,String[]>> kFoldInput = 
+	public final transient DefaultInputPort<MapEntry<Integer,String[]>> inForEvaluation = 
 			new DefaultInputPort<MapEntry<Integer,String[]>>(){
 
 		@Override
 		public void process(MapEntry<Integer, String[]> testInstance) {
+
+			if(testInstance.getK().equals(-1)){
+				return;
+			}
+
+			if(!initializedModels){
+				initModels();
+				initializedModels = true;
+			}
+			//LOG.info("Tuple received: {}",testInstance.getK()+Arrays.toString(testInstance.getV()));
+
 			if(nbc.isKFoldPartition()){
 				int fold = testInstance.getK();
 				String predictedClass = kFoldModels[fold].evaluate(testInstance.getV());
+				//LOG.info("Predicted class = {}", predictedClass);
 				String originalClass = testInstance.getV()[testInstance.getV().length-1];
 				if(predictedClass.trim().equalsIgnoreCase(originalClass.trim())){
 					kFoldCorrect[fold] += 1;
 				}
 				kFoldTotal[fold] += 1;
+				changeInWindow = true;
+			}
+			if(nbc.isOnlyEvaluate()) { // Plain evaluation. 
+				// TODO Assumes that the input also contains the actual class.
+				// Check if input data contains actual class. If not don't output accuracy or actual class
+				String[] tuple = testInstance.getV();
+				String resultClass = m.evaluate(tuple);
+				if(resultClass.equalsIgnoreCase(tuple[tuple.length-1])){
+					correct += 1;
+				}
+				total += 1;
+				outToWriter.emit("Predicted: " + resultClass + "\tActual: " + tuple[tuple.length-1] + "\n");
 			}
 		}
 	};
 
 	@Override
 	public void setup(OperatorContext context){
+		initializedModels = false;
+	}
+
+	public void initModels(){
 		if(nbc.isKFoldPartition()){
 			folds = nbc.getNumFolds();
 			kFoldModels = new NBModelStorage[folds];
 			for(int i=0;i<folds;i++){
-				kFoldModels[i] = NBPMMLUtils.getModelFromPMMLFile(pmmlFilePath+"."+i);
+				kFoldModels[i] = NBPMMLUtils.getModelFromPMMLFile(nbc.getOutputModelDir()+Path.SEPARATOR+nbc.getOutputModelFileName()+"."+i);
 			}
 			kFoldCorrect = new long[folds];
 			kFoldTotal = new long[folds];
 		}
 		else{
-			m = NBPMMLUtils.getModelFromPMMLFile(pmmlFilePath);
+			m = NBPMMLUtils.getModelFromPMMLFile(nbc.getOutputModelDir()+Path.SEPARATOR+nbc.getOutputModelFileName());
 		}
+		LOG.info("Models Initialized");
 	}
 
 	@Override
@@ -122,17 +129,20 @@ public class NBEvaluator extends BaseOperator{
 
 	@Override
 	public void endWindow() {
-
-		if(nbc.isKFoldPartition()){
-			StringBuilder outputStats = new StringBuilder();
-			outputStats.append("Accuracies = ");
-			for(int i=0;i<folds;i++){
-				if(kFoldTotal[i] > 0){
-					outputStats.append( i +": "+ (double)(kFoldCorrect[i]) / (double)(kFoldTotal[i]) + "\t");
+		if(changeInWindow){
+			changeInWindow = false;
+			
+			if(nbc.isKFoldPartition()){
+				StringBuilder outputStats = new StringBuilder();
+				for(int i=0;i<folds;i++){
+					if(kFoldTotal[i] > 0){
+						outputStats.append("Fold-" + i +": "+ (double)(kFoldCorrect[i]) / (double)(kFoldTotal[i]) + "\t");
+					}
 				}
+				outputStats.append("\n");
+				outToWriter.emit(outputStats.toString());
+				//LOG.info("Emitted at end window: {}", outputStats.toString());
 			}
-			outputStats.append("\n");
-			output.emit(outputStats.toString());
 		}
 	}
 }

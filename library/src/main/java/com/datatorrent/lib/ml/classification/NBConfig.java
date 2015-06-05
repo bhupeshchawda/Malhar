@@ -11,13 +11,14 @@ package com.datatorrent.lib.ml.classification;
 public class NBConfig {
 
 	boolean isKFoldPartition = false;
+	boolean onlyTrain = false;
+	boolean onlyEvaluate = false;
 	int numFolds = 1;
-	String inputDataDir;
+	String inputDataFile;
 	String outputModelDir;
 	String outputModelFileName;
 	String outputResultDir;
 	String outputResultFileName;
-	boolean overwriteOutput;
 	
 	public NBConfig(){
 		
@@ -35,18 +36,18 @@ public class NBConfig {
 	 * @param outputResultFileName - Output filename for the results of the Evaluation or the K-fold Evaluation
 	 * @param overwriteOutput - Whether to overwrite the output file? In case of Training, it is the model file - true. In case of Evaluation, it is the result file - false
 	 */
-	public NBConfig(boolean isKFold, int numFolds, 
+	public NBConfig(boolean isKFold, boolean onlyTrain, boolean onlyEvaluate, int numFolds, 
 			String inputDataDir, String outputModelDir, String outputModelFileName, 
-			String outputResultDir, String outputResultFileName,
-			boolean overwriteOutput){	
-		this.isKFoldPartition = true;
+			String outputResultDir, String outputResultFileName){	
+		this.isKFoldPartition = isKFold;
+		this.onlyTrain = onlyTrain;
+		this.onlyEvaluate = onlyEvaluate;
 		this.numFolds = numFolds;
-		this.inputDataDir = inputDataDir;
+		this.inputDataFile = inputDataDir;
 		this.outputModelDir = outputModelDir;
 		this.outputModelFileName = outputModelFileName;
 		this.outputResultDir = outputResultDir;
 		this.outputResultFileName = outputResultFileName;
-		this.overwriteOutput = overwriteOutput;
 	}
 
 	/*
@@ -69,12 +70,12 @@ public class NBConfig {
 		this.numFolds = numFolds;
 	}
 
-	public String getInputDataDir() {
-		return inputDataDir;
+	public String getInputDataFile() {
+		return inputDataFile;
 	}
 
-	public void setInputDataDir(String inputDataDir) {
-		this.inputDataDir = inputDataDir;
+	public void setInputDataFile(String inputDataFile) {
+		this.inputDataFile = inputDataFile;
 	}
 
 	public String getOutputModelDir() {
@@ -109,12 +110,20 @@ public class NBConfig {
 		this.outputResultFileName = outputResultFileName;
 	}
 
-	public boolean isOverwriteOutput() {
-		return overwriteOutput;
+	public boolean isOnlyTrain() {
+		return onlyTrain;
 	}
 
-	public void setOverwriteOutput(boolean overwriteOutput) {
-		this.overwriteOutput = overwriteOutput;
+	public void setOnlyTrain(boolean onlyTrain) {
+		this.onlyTrain = onlyTrain;
+	}
+
+	public boolean isOnlyEvaluate() {
+		return onlyEvaluate;
+	}
+
+	public void setOnlyEvaluate(boolean onlyEvaluate) {
+		this.onlyEvaluate = onlyEvaluate;
 	}
 
 	

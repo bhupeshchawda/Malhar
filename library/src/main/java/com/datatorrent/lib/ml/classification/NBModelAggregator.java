@@ -17,6 +17,7 @@ package com.datatorrent.lib.ml.classification;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
 import com.datatorrent.api.BaseOperator;
 import com.datatorrent.api.DefaultInputPort;
 import com.datatorrent.api.DefaultOutputPort;
@@ -51,31 +52,14 @@ public class NBModelAggregator<V extends NBModelStorage> extends BaseOperator
 	NBConfig nbc = null;
 	int folds;
 	NBModelStorage[] kFoldModels;
-	
+	boolean endOfInput = false;
+
 	public NBModelAggregator(){
 	}
-	
+
 	public NBModelAggregator(NBConfig nbc){
 		this.nbc = nbc;
 	}
-
-	/**
-	 * Input port that takes the intermediate model for a window of data processed by the NaiveBayesCounter operator.
-	 * The input intermediate model is merged into the aggregated model stored in memory in this operator.
-	 */
-	public final transient DefaultInputPort<NBModelStorage> data = new DefaultInputPort<NBModelStorage>() {
-
-		@Override
-		public void process(NBModelStorage md) {
-			if(md.instanceCount > 0){
-				m.merge(md);
-				changeInThisWindow = true;
-			}
-			else{
-				LOG.info("Input model was trained on 0 instances");
-			}
-		}
-	};
 
 	/**
 	 * Input port for k-fold cross validation input. 
@@ -83,35 +67,57 @@ public class NBModelAggregator<V extends NBModelStorage> extends BaseOperator
 	 * This key i is used in identifying which "fold" is to be tested in the model built using this. 
 	 * Hence we merge the input intermediate model with the other k-1 models and store it as model i
 	 */
-	public final transient DefaultInputPort<MapEntry<Integer, NBModelStorage>> kFoldInput = 
+	public final transient DefaultInputPort<MapEntry<Integer, NBModelStorage>> inTraining = 
 			new DefaultInputPort<MapEntry<Integer, NBModelStorage>>() {
 
 		@Override
 		public void process(MapEntry<Integer, NBModelStorage> partModel) {
-			for(int i=0;i<folds;i++){
-				if(i != partModel.getK().intValue() && partModel.getV().instanceCount > 0){
-					kFoldModels[i].merge(partModel.getV());	//Merge partModel[fold] in all Models except "fold"
+			if(partModel.getV() == null){
+				endOfInput = true;
+				return;
+			}
+			
+			if(nbc.isKFoldPartition() && !partModel.getK().equals(-1)){
+				for(int i=0;i<folds;i++){
+					if(i != partModel.getK().intValue() && partModel.getV().instanceCount > 0){
+						// Merge partModel[fold] in all Models except "fold"
+						kFoldModels[i].merge(partModel.getV());	
+						changeInThisWindow = true;
+					}
+				}
+			}
+			if(nbc.isOnlyTrain() && partModel.getK().equals(-1)){
+				NBModelStorage md = partModel.getV();
+				if(md.instanceCount > 0){
+					m.merge(md);
 					changeInThisWindow = true;
 				}
 			}
 		}
 	};
 
+//	public final transient DefaultInputPort<Boolean> inDone = 
+//			new DefaultInputPort<Boolean>() {
+//
+//				@Override
+//				public void process(Boolean b) {
+//					if(b.equals(true)){
+//						outDone.emit(true);
+//					}
+//				}	
+//	};
 
-	/**
-	 * Output port that emits PMML model as a XML String
-	 */
-	public final transient DefaultOutputPort<String> output = new DefaultOutputPort<String>();
-
+//	public final transient DefaultOutputPort<Boolean> outDone = 
+//			new DefaultOutputPort<Boolean>();
+	
 	/**
 	 * Output port which emits k-fold models as output in the end window method
 	 */
-	public final transient DefaultOutputPort<MapEntry<Integer, String>> kFoldOutput = 
+	public final transient DefaultOutputPort<MapEntry<Integer, String>> outTraining = 
 			new DefaultOutputPort<MapEntry<Integer, String>>();
 
 	@Override
 	public void setup(OperatorContext context) {
-		// TODO Auto-generated method stub
 		super.setup(context);
 		m = new NBModelStorage();
 
@@ -132,19 +138,27 @@ public class NBModelAggregator<V extends NBModelStorage> extends BaseOperator
 	public void endWindow(){
 		if(changeInThisWindow){
 			changeInThisWindow = false;
+			
 			if(nbc.isKFoldPartition()){
-				if(kFoldOutput.isConnected()){
+				if(outTraining.isConnected()){
 					for(int i=0;i<folds;i++){
 						MapEntry<Integer, String> xmlModel = 
 								new MapEntry<Integer, String>(i, kFoldModels[i].exportToPMML());
-						kFoldOutput.emit(xmlModel);
+						outTraining.emit(xmlModel);
 					}
 				}
 			}
-			else{
+			if(nbc.isOnlyTrain()){
 				String s = m.exportToPMML();
-				output.emit(s);
-				LOG.debug("Emitted Instances = {}", m.instanceCount);
+				MapEntry<Integer, String> xmlModel = 
+						new MapEntry<Integer, String>(-1, s);
+				outTraining.emit(xmlModel);
+			}
+		}
+		else{
+			if(endOfInput){
+				outTraining.emit(new MapEntry<Integer, String>(-1, null));
+				endOfInput = false;
 			}
 		}
 	}
