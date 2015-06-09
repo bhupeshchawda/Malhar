@@ -15,6 +15,7 @@
  */
 package com.datatorrent.lib.ml.classification;
 
+import org.apache.http.impl.client.NullBackoffStrategy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -61,6 +62,18 @@ public class NBModelAggregator<V extends NBModelStorage> extends BaseOperator
     this.nbc = nbc;
   }
 
+  public final transient DefaultInputPort<Boolean> controlIn = new DefaultInputPort<Boolean>() {
+    @Override
+    public void process(Boolean b)
+    {
+      if(b.booleanValue()){
+        endOfInput = true;
+        controlOut.emit(true);
+        
+      }
+    }
+  };
+
   /**
    * Input port for k-fold cross validation input. 
    * The input is an intermediate model pointed to by the key i in the input entry.
@@ -72,10 +85,10 @@ public class NBModelAggregator<V extends NBModelStorage> extends BaseOperator
 
     @Override
     public void process(MapEntry<Integer, NBModelStorage> partModel) {
-      if(partModel.getV() == null){
-        endOfInput = true;
-        return;
-      }
+//      if(partModel.getV() == null){
+//        endOfInput = true;
+//        return;
+//      }
       
       if(nbc.isKFoldPartition() && !partModel.getK().equals(-1)){
         for(int i=0;i<folds;i++){
@@ -101,7 +114,11 @@ public class NBModelAggregator<V extends NBModelStorage> extends BaseOperator
    */
   public final transient DefaultOutputPort<MapEntry<Integer, String>> outTraining = 
       new DefaultOutputPort<MapEntry<Integer, String>>();
-
+  public final transient DefaultOutputPort<MapEntry<Integer, NBModelStorage>> outEvaluator = 
+      new DefaultOutputPort<MapEntry<Integer, NBModelStorage>>();
+  public final transient DefaultOutputPort<Boolean> controlOut = 
+      new DefaultOutputPort<Boolean>();
+  
   @Override
   public void setup(OperatorContext context) {
     super.setup(context);
@@ -131,6 +148,9 @@ public class NBModelAggregator<V extends NBModelStorage> extends BaseOperator
             MapEntry<Integer, String> xmlModel = 
                 new MapEntry<Integer, String>(i, kFoldModels[i].exportToPMML());
             outTraining.emit(xmlModel);
+            MapEntry<Integer, NBModelStorage> foldModel = 
+                new MapEntry<Integer, NBModelStorage>(i, kFoldModels[i]);
+            outEvaluator.emit(foldModel);
           }
         }
       }
@@ -141,11 +161,11 @@ public class NBModelAggregator<V extends NBModelStorage> extends BaseOperator
         outTraining.emit(xmlModel);
       }
     }
-    else{
-      if(endOfInput){
-        outTraining.emit(new MapEntry<Integer, String>(-1, null));
-        endOfInput = false;
-      }
-    }
+//    else{
+//      if(endOfInput){
+//        outTraining.emit(new MapEntry<Integer, String>(-1, null));
+//        endOfInput = false;
+//      }
+//    }
   }
 }

@@ -55,12 +55,11 @@ public class NBOutputPerWindowOperator extends BaseOperator {
     }
   };
 
-  // Training. K fold or plain training
-  public final transient DefaultInputPort<MapEntry<Integer, String>> inMultiWriter = 
-      new DefaultInputPort<MapEntry<Integer, String>>() {
+  public final transient DefaultInputPort<Boolean> controlIn = new DefaultInputPort<Boolean>() {
     @Override
-    public void process(MapEntry<Integer, String> xmlModel) {
-      if(xmlModel.getV() == null){
+    public void process(Boolean b)
+    {
+      if(b.booleanValue()){
         LOG.debug("Training Done");
         writeModels();
         try{
@@ -73,8 +72,30 @@ public class NBOutputPerWindowOperator extends BaseOperator {
           e.printStackTrace();
           throw new RuntimeException();
         }
-        return;
       }
+    }
+  };
+  
+  // Training. K fold or plain training
+  public final transient DefaultInputPort<MapEntry<Integer, String>> inMultiWriter = 
+      new DefaultInputPort<MapEntry<Integer, String>>() {
+    @Override
+    public void process(MapEntry<Integer, String> xmlModel) {
+//      if(xmlModel.getV() == null){
+//        LOG.debug("Training Done");
+//        writeModels();
+//        try{
+//          //Write done file
+//          Path doneFile = new Path(nbc.getOutputModelDir() + Path.SEPARATOR + ".done");
+//          Configuration conf = new Configuration();
+//          FileSystem fs = FileSystem.get(conf);
+//          fs.create(doneFile);
+//        }catch(IOException e){
+//          e.printStackTrace();
+//          throw new RuntimeException();
+//        }
+//        return;
+//      }
       if(nbc.isKFoldPartition() && !xmlModel.getK().equals(-1)){ // Only Store. Write at end window
         int fold = xmlModel.getK();
         xmlModels[fold] = xmlModel.getV();

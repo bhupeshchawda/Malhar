@@ -1,11 +1,8 @@
 package com.datatorrent.lib.ml.classification;
 
-import java.util.Arrays;
-
 import org.apache.hadoop.fs.Path;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
 import com.datatorrent.api.BaseOperator;
 import com.datatorrent.api.DefaultInputPort;
 import com.datatorrent.api.DefaultOutputPort;
@@ -24,19 +21,18 @@ public class NBEvaluator extends BaseOperator{
 
   private static final Logger LOG = LoggerFactory.getLogger(NBEvaluator.class);
 
-  transient String[] attributes = null;
-  transient NBModelStorage m;
+  NBModelStorage m;
   double correct = 0.0;
   double total = 0.0;
 
   NBConfig nbc = null;
   boolean initializedModels = false;
   boolean changeInWindow = false;
-  transient NBModelStorage[] kFoldModels;
-  
+  NBModelStorage[] kFoldModels;
+
   int[] featureValueSizes;
   int[][] kFeatureValueSizes;
-  
+
   int folds = 0;
   long[] kFoldCorrect;
   long[] kFoldTotal;
@@ -46,6 +42,14 @@ public class NBEvaluator extends BaseOperator{
 
   public NBEvaluator(NBConfig nbc){
     this.nbc = nbc;
+    initializedModels = false;
+    if(nbc.isKFoldPartition()){
+      folds = nbc.getNumFolds();
+      kFoldModels = new NBModelStorage[folds];
+      kFeatureValueSizes = new int[folds][nbc.getNumAttributes()];
+      kFoldCorrect = new long[folds];
+      kFoldTotal = new long[folds];
+    }
   }
 
   /**
@@ -59,6 +63,17 @@ public class NBEvaluator extends BaseOperator{
    */
   public final transient DefaultOutputPort<String> stats = new DefaultOutputPort<String>();
 
+  public final transient DefaultInputPort<MapEntry<Integer,NBModelStorage>> inKFoldModels = 
+      new DefaultInputPort<MapEntry<Integer,NBModelStorage>>(){
+
+    @Override
+    public void process(MapEntry<Integer, NBModelStorage> foldModel)
+    {
+      int fold = foldModel.getK();
+      kFoldModels[fold] = foldModel.getV();
+      kFeatureValueSizes[fold] = kFoldModels[fold].getFeatureValueSize();
+    }
+  };
   /**
    * Input port for k-fold cross validation flow. This is for identifying the accuracy of the Naive Bayes model.
    * This port receives an entry of the form <Integer, String[]>. 
@@ -79,15 +94,14 @@ public class NBEvaluator extends BaseOperator{
         initModels();
         initializedModels = true;
       }
-//      LOG.info("Tuple received: {}",testInstance.getK()+Arrays.toString(testInstance.getV()));
-      
+      //      LOG.info("Tuple received: {}",testInstance.getK()+Arrays.toString(testInstance.getV()));
 
       if(nbc.isKFoldPartition()){
         int fold = testInstance.getK();
         String predictedClass = kFoldModels[fold].evaluate(testInstance.getV(), kFeatureValueSizes[fold]);
         String originalClass = testInstance.getV()[testInstance.getV().length-1];
-//        LOG.info("K Feature Value Sizes: {}",Arrays.toString(kFeatureValueSizes[fold]));
-//        LOG.info("Predicted class = {} Actual = {}", predictedClass, originalClass);
+        //        LOG.info("K Feature Value Sizes: {}",Arrays.toString(kFeatureValueSizes[fold]));
+        //        LOG.info("Predicted class = {} Actual = {}", predictedClass, originalClass);
         if(predictedClass.trim().equalsIgnoreCase(originalClass.trim())){
           kFoldCorrect[fold] += 1;
         }
@@ -110,30 +124,15 @@ public class NBEvaluator extends BaseOperator{
 
   @Override
   public void setup(OperatorContext context){
-    initializedModels = false;
+
   }
 
   public void initModels(){
-    if(nbc.isKFoldPartition()){
-      folds = nbc.getNumFolds();
-      kFoldModels = new NBModelStorage[folds];
-      kFeatureValueSizes = new int[folds][nbc.getNumAttributes()];
-      for(int i=0;i<folds;i++){
-        kFoldModels[i] = NBPMMLUtils.getModelFromPMMLFile(nbc.getOutputModelDir()+Path.SEPARATOR+nbc.getOutputModelFileName()+"."+i, nbc);
-        kFeatureValueSizes[i] = kFoldModels[i].getFeatureValueSize();
-//        System.out.println("Feature Table for " + i);
-//        System.out.println("Attributes:"+kFoldModels[i].numAttributes+" Classes:"+kFoldModels[i].numClasses);
-//        System.out.println("Class Counts: " + kFoldModels[i].classCounts);
-//        for(int x=0;x<nbc.getNumAttributes();x++){
-//          for(int y=0;y<nbc.getNumClasses();y++){
-//            if(kFoldModels[i].featureTableCategorical[x][y] != null)
-//              System.out.print(kFoldModels[i].featureTableCategorical[x][y]+"\t");
-//          }
-//          System.out.println();
-//        }
-      }
-      kFoldCorrect = new long[folds];
-      kFoldTotal = new long[folds];
+    if(nbc.isKFoldPartition()){ // Do this in input port from aggregator. Cache the models sent by the aggregator.
+      //      for(int i=0;i<folds;i++){
+      //        kFoldModels[i] = NBPMMLUtils.getModelFromPMMLFile(nbc.getOutputModelDir()+Path.SEPARATOR+nbc.getOutputModelFileName()+"."+i, nbc);
+      //        kFeatureValueSizes[i] = kFoldModels[i].getFeatureValueSize();
+      //      }
     }
     else{
       m = NBPMMLUtils.getModelFromPMMLFile(nbc.getOutputModelDir()+Path.SEPARATOR+nbc.getOutputModelFileName(), nbc);
@@ -150,7 +149,7 @@ public class NBEvaluator extends BaseOperator{
   public void endWindow() {
     if(changeInWindow){
       changeInWindow = false;
-      
+
       if(nbc.isKFoldPartition()){
         StringBuilder outputStats = new StringBuilder();
         for(int i=0;i<folds;i++){

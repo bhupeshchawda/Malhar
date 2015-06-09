@@ -2,6 +2,7 @@ package com.datatorrent.lib.ml.classification;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
 import com.datatorrent.api.BaseOperator;
 import com.datatorrent.api.DefaultInputPort;
 import com.datatorrent.api.DefaultOutputPort;
@@ -45,7 +46,25 @@ public class NBInputReader extends BaseOperator{
    */
   public final transient DefaultOutputPort<MapEntry<Integer,String[]>> outForEvaluation = new DefaultOutputPort<MapEntry<Integer,String[]>>();
   public final transient DefaultOutputPort<MapEntry<Integer,String[]>> outForTraining = new DefaultOutputPort<MapEntry<Integer,String[]>>();
+  public final transient DefaultOutputPort<Boolean> controlOut = new DefaultOutputPort<Boolean>();
 
+  public final transient DefaultInputPort<Boolean> controlIn = new DefaultInputPort<Boolean>(){
+
+    @Override
+    public void process(Boolean b)
+    {
+      if(b.booleanValue()){
+        if(nbc.isKFoldPartition() && trainingPhase){
+          trainingPhase = false;
+          controlOut.emit(true);
+//          outForTraining.emit(new MapEntry<Integer, String[]>(-1, null));
+        }        
+      }
+    }
+    
+  };
+
+  
   /**
    * Input port receives tuples as String 
    */
@@ -54,13 +73,14 @@ public class NBInputReader extends BaseOperator{
     @Override
     public void process(String tuple) {
 
-      if(tuple.trim().equals("@FILE_END")){
-        if(nbc.isKFoldPartition() && trainingPhase){
-          trainingPhase = false;
-          outForTraining.emit(new MapEntry<Integer, String[]>(-1, null));
-          return;
-        }
-      }
+//      if(tuple.trim().equals("@FILE_END")){
+//        if(nbc.isKFoldPartition() && trainingPhase){
+//          trainingPhase = false;
+//          outForTraining.emit(new MapEntry<Integer, String[]>(-1, null));
+//          return;
+//        }
+//      }
+      
       if(tuple.trim().startsWith("@") || tuple.trim().startsWith("%") || tuple.trim().length() == 0){
         return;
       }

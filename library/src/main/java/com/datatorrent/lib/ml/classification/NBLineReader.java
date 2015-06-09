@@ -26,15 +26,18 @@ public class NBLineReader implements InputOperator {
   private static final Logger LOG = LoggerFactory
       .getLogger(NBLineReader.class);
 
-  private long maxTuplesPerWindow;
+  private long trainingTuplesPerWindow;
+  private long evaluationTuplesPerWindow;
 
 
   public final transient DefaultOutputPort<String> lineOutputPort = new DefaultOutputPort<String>();
+  public final transient DefaultOutputPort<Boolean> controlOut = new DefaultOutputPort<Boolean>();
   private transient BufferedReader br = null;
   private transient FileSystem fs = null;
   private NBConfig nbc = null;
   private boolean trainingPhase;
   private boolean evaluationPhase;
+  private boolean sendTrainingDoneSignal;
   private long counter = 0;
 
   public NBLineReader() {
@@ -46,6 +49,7 @@ public class NBLineReader implements InputOperator {
     if (nbc.isKFoldPartition()) {
       trainingPhase = true;
       evaluationPhase = false;
+      sendTrainingDoneSignal = false;
     }
   }
 
@@ -60,11 +64,13 @@ public class NBLineReader implements InputOperator {
           else {
             resetReader();
             trainingPhase = false;
+            sendTrainingDoneSignal = true;
             LOG.debug("File System Reset. Training Phase Ended.");
-            return "@FILE_END";
+            return "";
+            //return "@FILE_END";
           }
         }
-        else {
+        else if(evaluationPhase){
           String s = br.readLine();
           if (s != null) {
             return s;
@@ -72,6 +78,7 @@ public class NBLineReader implements InputOperator {
             return "";
           }
         }
+        else  return "";
       } else { // nbc.isOnlyTrain() || nbc.isOnlyEvaluate() - Only
         String s = br.readLine();
         if (s != null) {
@@ -103,6 +110,10 @@ public class NBLineReader implements InputOperator {
   @Override
   public void beginWindow(long arg0) {
     counter = 0;
+    if(!trainingPhase && !evaluationPhase && sendTrainingDoneSignal){
+      controlOut.emit(true);
+      sendTrainingDoneSignal = false;
+    }
   }
 
   @Override
@@ -146,13 +157,16 @@ public class NBLineReader implements InputOperator {
   @Override
   public void emitTuples() {
     // Limit emit rate
-    if (counter >= maxTuplesPerWindow && evaluationPhase){
+    if (trainingPhase && counter >= trainingTuplesPerWindow){
+      return;
+    }
+    if (evaluationPhase && counter >= evaluationTuplesPerWindow){
       return;
     }
     
     // Don't emit when training has ended but evaluation has not started
     if (!trainingPhase && !evaluationPhase){
-      return;      
+      return;
     }
 
     // Get a tuple from input and emit it
@@ -163,13 +177,26 @@ public class NBLineReader implements InputOperator {
     }
   }
 
-  public long getMaxTuplesPerWindow() {
-    return maxTuplesPerWindow;
+  public long getTrainingTuplesPerWindow()
+  {
+    return trainingTuplesPerWindow;
   }
 
-  public void setMaxTuplesPerWindow(long maxTuplesPerWindow) {
-    this.maxTuplesPerWindow = maxTuplesPerWindow;
+  public void setTrainingTuplesPerWindow(long trainingTuplesPerWindow)
+  {
+    this.trainingTuplesPerWindow = trainingTuplesPerWindow;
   }
+
+  public long getEvaluationTuplesPerWindow()
+  {
+    return evaluationTuplesPerWindow;
+  }
+
+  public void setEvaluationTuplesPerWindow(long evaluationTuplesPerWindow)
+  {
+    this.evaluationTuplesPerWindow = evaluationTuplesPerWindow;
+  }
+
 
 
 }

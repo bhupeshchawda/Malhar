@@ -68,16 +68,28 @@ public class NBCounter extends BaseOperator
   public NBCounter(NBConfig nbc){
     this.nbc = nbc;
   }
+  
+  public final transient DefaultInputPort<Boolean> controlIn = new DefaultInputPort<Boolean>() {
+    @Override
+    public void process(Boolean b)
+    {
+      if(b.booleanValue()){
+        endOfInput = true;
+        controlOut.emit(true);
+        
+      }
+    }
+  };
 
   public final transient DefaultInputPort<MapEntry<Integer, String[]>> inTraining = 
       new DefaultInputPort<MapEntry<Integer, String[]>>() {
 
     @Override
     public void process(MapEntry<Integer, String[]> instance) {
-      if(instance.getV() == null){
-        endOfInput = true;
-        return;
-      }
+//      if(instance.getV() == null){
+//        endOfInput = true;
+//        return;
+//      }
       
       if(nbc.isKFoldPartition()){
         kFoldModels[instance.getK()].updateModel(instance.getV());
@@ -96,6 +108,9 @@ public class NBCounter extends BaseOperator
    */
   public final transient DefaultOutputPort<MapEntry<Integer, NBModelStorage>> outTraining = 
       new DefaultOutputPort<MapEntry<Integer, NBModelStorage>>();
+
+  public final transient DefaultOutputPort<Boolean> controlOut = 
+      new DefaultOutputPort<Boolean>();
 
   /**
    * Setup method for the operator. Initializes the NBModelStorage object.
@@ -131,12 +146,12 @@ public class NBCounter extends BaseOperator
         outTraining.emit(intermediateModel);
       }
     }
-    else{
-      if(endOfInput){
-        outTraining.emit(new MapEntry<Integer, NBModelStorage>(-1, null));
-        endOfInput = false;
-      }
-    }
+//    else{
+//      if(endOfInput){
+//        outTraining.emit(new MapEntry<Integer, NBModelStorage>(-1, null));
+//        endOfInput = false;
+//      }
+//    }
   }
 
   /**
