@@ -50,119 +50,105 @@ import com.datatorrent.api.Context.OperatorContext;
 
 public class NBCounter extends BaseOperator
 {
-	private static final Logger LOG = LoggerFactory.getLogger(NBCounter.class);
+  private static final Logger LOG = LoggerFactory.getLogger(NBCounter.class);
 
-	/**
-	 * Object of type ModelData which will contain the intermediate model to be emitted at the end of the window
-	 */
-	transient NBModelStorage m;
-	transient int folds;
-	transient NBModelStorage[] kFoldModels;
-	boolean changedInWindow = false;
-	NBConfig nbc = null;
-	boolean endOfInput = false;
-	
-	public NBCounter(){
-	}
+  /**
+   * Object of type ModelData which will contain the intermediate model to be emitted at the end of the window
+   */
+  transient NBModelStorage m;
+  transient int folds;
+  transient NBModelStorage[] kFoldModels;
+  boolean changedInWindow = false;
+  NBConfig nbc = null;
+  boolean endOfInput = false;
+  
+  public NBCounter(){
+  }
 
-	public NBCounter(NBConfig nbc){
-		this.nbc = nbc;
-	}
+  public NBCounter(NBConfig nbc){
+    this.nbc = nbc;
+  }
 
-//	public final transient DefaultInputPort<Boolean> inDone = 
-//			new DefaultInputPort<Boolean>() {
-//
-//				@Override
-//				public void process(Boolean b) {
-//					if(b.equals(true)){
-//						outDone.emit(true);
-//					}
-//				}	
-//	};
+  public final transient DefaultInputPort<MapEntry<Integer, String[]>> inTraining = 
+      new DefaultInputPort<MapEntry<Integer, String[]>>() {
 
-//	public final transient DefaultOutputPort<Boolean> outDone = 
-//	new DefaultOutputPort<Boolean>();
+    @Override
+    public void process(MapEntry<Integer, String[]> instance) {
+      if(instance.getV() == null){
+        endOfInput = true;
+        return;
+      }
+      
+      if(nbc.isKFoldPartition()){
+        kFoldModels[instance.getK()].updateModel(instance.getV());
+        changedInWindow = true;
+      }
+      
+      if(nbc.isOnlyTrain()){
+        m.updateModel(instance.getV());
+        changedInWindow = true;
+      }
+    }
+  };
 
-	public final transient DefaultInputPort<MapEntry<Integer, String[]>> inTraining = 
-			new DefaultInputPort<MapEntry<Integer, String[]>>() {
+  /**
+   * Output port that emits an object of type Entry<Integer, NBModelStorage>
+   */
+  public final transient DefaultOutputPort<MapEntry<Integer, NBModelStorage>> outTraining = 
+      new DefaultOutputPort<MapEntry<Integer, NBModelStorage>>();
 
-		@Override
-		public void process(MapEntry<Integer, String[]> instance) {
-			if(instance.getV() == null){
-				endOfInput = true;
-				return;
-			}
-			
-			if(nbc.isKFoldPartition()){
-				kFoldModels[instance.getK()].updateModel(instance.getV());
-				changedInWindow = true;
-			}
-			
-			if(nbc.isOnlyTrain()){
-				m.updateModel(instance.getV());
-				changedInWindow = true;						
-			}
-		}
-	};
+  /**
+   * Setup method for the operator. Initializes the NBModelStorage object.
+   */
+  @Override
+  public void setup(OperatorContext context) {
+    m = new NBModelStorage(nbc.getNumAttributes(), nbc.getNumClasses());
+    folds = nbc.getNumFolds();
+    kFoldModels = new NBModelStorage[folds];
+    for(int i=0;i<folds;i++){
+      kFoldModels[i] = new NBModelStorage(nbc.getNumAttributes(), nbc.getNumClasses());
+    }
+  }
 
-	/**
-	 * Output port that emits an object of type Entry<Integer, NBModelStorage>
-	 */
-	public final transient DefaultOutputPort<MapEntry<Integer, NBModelStorage>> outTraining = 
-			new DefaultOutputPort<MapEntry<Integer, NBModelStorage>>();
+  /**
+   * Emit ModelData m
+   */
+  @Override
+  public void endWindow(){
+    if(changedInWindow){
+      changedInWindow = false;
 
-	/**
-	 * Setup method for the operator. Initializes the NBModelStorage object.
-	 */
-	@Override
-	public void setup(OperatorContext context) {
-		m = new NBModelStorage();
-		folds = nbc.getNumFolds();
-		kFoldModels = new NBModelStorage[folds];
-		for(int i=0;i<folds;i++){
-			kFoldModels[i] = new NBModelStorage();
-		}
-	}
+      if(nbc.isKFoldPartition()){
+        for(int i=0;i<folds;i++){
+          MapEntry<Integer, NBModelStorage> intermediateModel = 
+              new MapEntry<Integer, NBModelStorage>(i, kFoldModels[i]);
+          outTraining.emit(intermediateModel);
+        }
+      }
+      if(nbc.isOnlyTrain()){
+        MapEntry<Integer, NBModelStorage> intermediateModel = 
+            new MapEntry<Integer, NBModelStorage>(-1, m);
+        outTraining.emit(intermediateModel);
+      }
+    }
+    else{
+      if(endOfInput){
+        outTraining.emit(new MapEntry<Integer, NBModelStorage>(-1, null));
+        endOfInput = false;
+      }
+    }
+  }
 
-	/**
-	 * Emit ModelData m
-	 */
-	@Override
-	public void endWindow(){
-		if(changedInWindow){
-			changedInWindow = false;
-
-			if(nbc.isKFoldPartition()){
-				for(int i=0;i<folds;i++){
-					MapEntry<Integer, NBModelStorage> intermediateModel = 
-							new MapEntry<Integer, NBModelStorage>(i, kFoldModels[i]);
-					outTraining.emit(intermediateModel);
-				}
-			}
-			if(nbc.isOnlyTrain()){
-				MapEntry<Integer, NBModelStorage> intermediateModel = 
-						new MapEntry<Integer, NBModelStorage>(-1, m);
-				outTraining.emit(intermediateModel);
-			}
-		}
-		else{
-			if(endOfInput){
-				outTraining.emit(new MapEntry<Integer, NBModelStorage>(-1, null));
-				endOfInput = false;
-			}
-		}
-	}
-
-	/**
-	 * Clear the ModelData object m
-	 */
-	public void beginWindow(long windowId){
-		m.clear();
-		if(nbc.isKFoldPartition()){
-			for(int i=0;i<folds;i++){
-				kFoldModels[i].clear();
-			}
-		}
-	}
+  /**
+   * Clear the ModelData object m
+   */
+  public void beginWindow(long windowId){
+    m.clear();
+    if(nbc.isKFoldPartition()){
+      for(int i=0;i<folds;i++){
+        kFoldModels[i].clear();
+      }
+    }
+  }
 
 }

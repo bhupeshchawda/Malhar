@@ -3,14 +3,11 @@ package com.datatorrent.lib.ml.classification;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashMap;
-import java.util.HashSet;
 
 import javax.xml.bind.JAXBException;
 import javax.xml.bind.Marshaller;
 
-import org.apache.http.impl.client.NullBackoffStrategy;
 import org.dmg.pmml.*;
 import org.jpmml.model.JAXBUtil;
 
@@ -28,34 +25,26 @@ import org.jpmml.model.JAXBUtil;
  *
  */
 @SuppressWarnings("serial")
-public class NBModelStorage extends ClassificationModelStorage{
+public class NBModelStorageV1 extends ClassificationModelStorage{
 
   /**
    * A map of String -> Integer keeping track of number of instances of each class that are received/processed
    */
-  long[] classCounts;
-  int numClasses;
-  int numAttributes;
+  HashMap<String, Long> classCounts;
 
   /**
    * The feature table keeping the counts for <featureName, featureValue, ClassName> triplet
    * TODO: This can be optimized by using primitive types like arrays. 
    */
-  HashMap<String, Long>[][] featureTableCategorical;
+  HashMap<String, HashMap<String, HashMap<String, Long>>> featureTableCategorical;
 
   /**
    * Constructor
    */
-  public NBModelStorage(){
-
-  }
-
-  public NBModelStorage(int numAttributes, int numClasses){
+  public NBModelStorageV1(){
     instanceCount = 0;
-    this.numAttributes = numAttributes;
-    this.numClasses = numClasses;
-    classCounts = new long[numClasses];
-    featureTableCategorical = new HashMap[numAttributes][numClasses];
+    classCounts = new HashMap<String, Long>();
+    featureTableCategorical = new HashMap<String, HashMap<String,HashMap<String,Long>>>();
   }
 
   /**
@@ -63,18 +52,8 @@ public class NBModelStorage extends ClassificationModelStorage{
    */
   public void clear(){
     instanceCount = 0;
-
-    // Clear class counts
-    for(int i=0;i<numClasses;i++){
-      classCounts[i] = 0;
-    }
-
-    // Clear feature table
-    for(int i=0;i<numAttributes;i++){
-      for(int j=0;j<numClasses;j++){
-        featureTableCategorical[i][j] = null;
-      }
-    }
+    classCounts.clear();
+    featureTableCategorical.clear();
   }
 
   /**
@@ -89,25 +68,38 @@ public class NBModelStorage extends ClassificationModelStorage{
     }
     instanceCount ++;
 
-    int trainClass = Integer.parseInt(features[features.length-1]);
-    classCounts[trainClass] += 1;
+    String trainClass = features[features.length-1];
+    if(classCounts.containsKey(trainClass)){
+      classCounts.put(trainClass, classCounts.get(trainClass)+1);
+    }
+    else{
+      classCounts.put(trainClass, 1L);
+    }
 
     for(int i=0;i<features.length-1;i++){
-      int featureName = i;
+      String featureName = i+"";
       String featureValue = features[i];
 
-      if(featureTableCategorical[featureName][trainClass] == null){
-        HashMap<String, Long> featureValueTable = new HashMap<String, Long>();
-        featureValueTable.put(featureValue, 1L);
-        featureTableCategorical[featureName][trainClass] = featureValueTable;
+      if(!featureTableCategorical.containsKey(featureName)){
+        HashMap<String, HashMap<String, Long>> featureValues = new HashMap<String, HashMap<String, Long>>();
+        HashMap<String, Long> classCounts = new HashMap<String, Long>();
+        classCounts.put(trainClass, 1L);
+        featureValues.put(featureValue, classCounts);
+        featureTableCategorical.put(featureName, featureValues);
       }
       else{
-        HashMap<String, Long> featureValueTable  = featureTableCategorical[featureName][trainClass];
-        if(featureValueTable.containsKey(featureValue)){
-          featureValueTable.put(featureValue, featureValueTable.get(featureValue)+1);
+        if(!featureTableCategorical.get(featureName).containsKey(featureValue)){
+          HashMap<String, Long> classCounts = new HashMap<String, Long>();
+          classCounts.put(trainClass, 1L);
+          featureTableCategorical.get(featureName).put(featureValue, classCounts);
         }
         else{
-          featureValueTable.put(featureValue, 1L);
+          if(featureTableCategorical.get(featureName).get(featureValue).containsKey(trainClass)){
+            featureTableCategorical.get(featureName).get(featureValue).put(trainClass, featureTableCategorical.get(featureName).get(featureValue).get(trainClass)+1);              
+          }
+          else{
+            featureTableCategorical.get(featureName).get(featureValue).put(trainClass, 1L);
+          }
         }
       }
     }
@@ -132,7 +124,7 @@ public class NBModelStorage extends ClassificationModelStorage{
     MiningSchema miningSchema = new MiningSchema();
 
     ArrayList<FieldName> fieldNames = new ArrayList<FieldName>();
-    for(int i=0;i<numAttributes;i++){      
+    for(int i=0;i<this.featureTableCategorical.size();i++){      
       FieldName fieldName = FieldName.create(i+"");
       fieldNames.add(fieldName);
       // TODO: Implement reading header of ARFF file. 
@@ -152,18 +144,19 @@ public class NBModelStorage extends ClassificationModelStorage{
     ArrayList<BayesInput> bayesInputList = new ArrayList<BayesInput>();
 
     //For Categorical Attributes
-    for(int i=0;i<numAttributes;i++){
-      BayesInput bayesInput = new BayesInput(fieldNames.get(i));
+    for(String featureName: featureTableCategorical.keySet()){
+      BayesInput bayesInput = new BayesInput(fieldNames.get(Integer.parseInt(featureName)));
+      HashMap<String, HashMap<String, Long>> featureValueTable = featureTableCategorical.get(featureName);
       PairCounts pairCounts = null;
       ArrayList<PairCounts> pairCountList = new ArrayList<PairCounts>();
-      for(String featureValue: getFeatureValues(i)){
+      for(String featureValue: featureValueTable.keySet()){
+        HashMap<String, Long> classTable = featureValueTable.get(featureValue);
+
         TargetValueCounts targetValueCounts = new TargetValueCounts();
         ArrayList<TargetValueCount> targetValueCountList = new ArrayList<TargetValueCount>();
-        for(int j = 0; j < numClasses; j++){
-          if(featureTableCategorical[i][j] != null && featureTableCategorical[i][j].containsKey(featureValue)){
-            TargetValueCount targetValueCount = new TargetValueCount(j+"", featureTableCategorical[i][j].get(featureValue));
-            targetValueCountList.add(targetValueCount);
-          }
+        for(String className: classTable.keySet()){
+          TargetValueCount targetValueCount = new TargetValueCount(className, classTable.get(className));
+          targetValueCountList.add(targetValueCount);
         }
         targetValueCounts.addTargetValueCounts(targetValueCountList.toArray(new TargetValueCount[targetValueCountList.size()]));
         pairCounts = new PairCounts(featureValue, targetValueCounts);
@@ -177,8 +170,8 @@ public class NBModelStorage extends ClassificationModelStorage{
 
     BayesOutput bayesOutput = new BayesOutput();
     TargetValueCounts targetValueCounts = new TargetValueCounts();
-    for(int i=0;i<numClasses;i++){
-      TargetValueCount targetValueCount = new TargetValueCount(i+"", classCounts[i]);
+    for(String className: classCounts.keySet()){
+      TargetValueCount targetValueCount = new TargetValueCount(className, classCounts.get(className));
       targetValueCounts.addTargetValueCounts(targetValueCount);
     }
     bayesOutput.setFieldName(fieldNameClass);
@@ -223,67 +216,62 @@ public class NBModelStorage extends ClassificationModelStorage{
   @SuppressWarnings("unchecked")
   public void merge(ClassificationModelStorage ctm){
 
-    NBModelStorage m = (NBModelStorage) ctm;
+    NBModelStorageV1 m = (NBModelStorageV1) ctm;
     if(m.instanceCount == 0)  return;
 
     instanceCount += m.instanceCount;
 
-    for(int i=0;i<numClasses;i++){
-      this.classCounts[i] += m.classCounts[i];
+    for(String className: m.classCounts.keySet()){
+      if(this.classCounts.containsKey(className)){
+        this.classCounts.put(className, this.classCounts.get(className)+m.classCounts.get(className));
+      }
+      else{
+        this.classCounts.put(className, m.classCounts.get(className));
+      }
     }
 
-    for(int i=0;i<numAttributes;i++){
-      for(int j=0;j<numClasses;j++){
-        HashMap<String, Long> hmThis = this.featureTableCategorical[i][j];
-        HashMap<String, Long> hm = m.featureTableCategorical[i][j];
-        if(hm == null){
-          continue;
-        }
-        for(String fv: hm.keySet()){
-          if(hmThis != null){
-            if(hmThis.containsKey(fv)){
-              hmThis.put(fv, hmThis.get(fv) + hm.get(fv));
-            }
-            else{
-              hmThis.put(fv, hm.get(fv));
+    // Feature Table Categorical
+    HashMap<String, HashMap<String,HashMap<String,Long>>> f1 = m.featureTableCategorical;
+    HashMap<String, HashMap<String,HashMap<String,Long>>> f2 = this.featureTableCategorical;
+
+    for(String fn: f1.keySet()){
+      if(f2.containsKey(fn)){
+        HashMap<String, HashMap<String, Long>> vfn2 = f2.get(fn);
+        HashMap<String, HashMap<String, Long>> vfn1 = f1.get(fn);
+        for(String fv: vfn1.keySet()){
+          if(vfn2.containsKey(fv)){
+            HashMap<String, Long> vfv2 = vfn2.get(fv);
+            HashMap<String, Long> vfv1 = vfn1.get(fv);
+            for(String c: f1.get(fn).get(fv).keySet()){
+              if(vfv2.containsKey(c)){
+                vfv2.put(c, vfv2.get(c)+vfv1.get(c));
+              }
+              else{
+                vfv2.put(c, vfv1.get(c));
+              }
             }
           }
           else{
-            hmThis = new HashMap<String, Long>();
-            hmThis.putAll(hm);
-            this.featureTableCategorical[i][j] = hmThis;
+            HashMap<String, Long> tc = new HashMap<String, Long>();
+            for(String c: vfn1.get(fv).keySet()){
+              tc.put(c, vfn1.get(fv).get(c).longValue());
+            }
+            vfn2.put(fv, tc);
           }
         }
       }
-    }
-  }
-
-  public int[] getFeatureValueSize(){
-    //Store for each attribute what is the tutal number of feature values it has - irrespective of class
-    int[] numFeatureValues = new int[numAttributes];
-    HashSet<String> featureValues = new HashSet<String>();
-    for(int i=0;i<numAttributes;i++){
-      featureValues.clear();
-      for(int j=0;j<numClasses;j++){
-        if(featureTableCategorical[i][j] != null){
-          featureValues.addAll(featureTableCategorical[i][j].keySet());
+      else{
+        HashMap<String, HashMap<String, Long>> tv = new HashMap<String, HashMap<String,Long>>();        
+        for(String v: f1.get(fn).keySet()){
+          HashMap<String, Long> tc = new HashMap<String, Long>();
+          for(String c: f1.get(fn).get(v).keySet()){
+            tc.put(c, f1.get(fn).get(v).get(c));
+          }
+          tv.put(v, tc);
         }
+        f2.put(fn, tv);
       }
-      numFeatureValues[i] = featureValues.size();
-    }
-    return numFeatureValues;
-  }
-
-  public String[] getFeatureValues(int featureName){
-    HashSet<String> featureValues = new HashSet<String>();
-
-    for(int j=0;j<numClasses;j++){
-      if(featureTableCategorical[featureName][j] != null){
-        featureValues.addAll(featureTableCategorical[featureName][j].keySet());
-      }
-    }
-
-    return featureValues.toArray(new String[featureValues.size()]);
+    }    
   }
 
   /**
@@ -291,47 +279,49 @@ public class NBModelStorage extends ClassificationModelStorage{
    * 
    * @return String - The class label of the testInstance as predicted using the model
    */
-  public String evaluate(String[] testInstance, int[] featureValueSizes){
+  public String evaluate(String[] testInstance){
     String predictedClass = "";
-    double[] probabilities = new double[numClasses];
+    HashMap<String, Double> probabilities = new HashMap<String, Double>();
 
     double total = 0;
-    
-    for(int i=0;i<numClasses;i++){
-      double denom = classCounts[i];
+    for(String className: classCounts.keySet()){
+      double denom = classCounts.get(className);
       double classScore = Math.log(denom) - Math.log(instanceCount);
-      for(int j=0;j<numAttributes;j++){
-        int numValues = featureValueSizes[j];
-        String featureValue = testInstance[j];
+
+      for(String featureName: featureTableCategorical.keySet()){
+        int numValues = featureTableCategorical.get(featureName).keySet().size();
+        String featureValue = testInstance[Integer.parseInt(featureName)];
         double numerator = 0;
-        if(featureTableCategorical[j][i] != null && featureTableCategorical[j][i].containsKey(featureValue)){
-          numerator = featureTableCategorical[j][i].get(featureValue);
+        if(featureTableCategorical.get(featureName).containsKey(featureValue) &&
+            featureTableCategorical.get(featureName).get(featureValue).containsKey(className)){
+          numerator = featureTableCategorical.get(featureName).get(featureValue).get(className);
         }
         else{
           numerator = 0;
         }
         classScore += Math.log(numerator+1) - Math.log(denom + numValues);
       }
-      probabilities[i] = classScore;
+
+      probabilities.put(className, classScore);
       total += Math.exp(classScore);
     }
 
     double max = 0;
-    for(int i=0;i<numClasses;i++){
-      double classScore = probabilities[i];
+    for(String className: classCounts.keySet()){
+      double classScore = probabilities.get(className);
       classScore = Math.exp(classScore - Math.log(total));
-      probabilities[i] = classScore;
+      probabilities.put(className, classScore);
       if(max < classScore){
         max = classScore;
-        predictedClass = i+"";
-      }      
+        predictedClass = className;
+      }
     }
 
     return predictedClass;
   }
 
   @Override
-  public String evaluate(String[] testInstance)
+  public String evaluate(String[] testInstance, int[] featureValueSizes)
   {
     // TODO Auto-generated method stub
     return null;

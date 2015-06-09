@@ -23,156 +23,143 @@ import com.datatorrent.api.DefaultInputPort;
  */
 public class NBOutputPerWindowOperator extends BaseOperator {
 
-	@SuppressWarnings("unused")
-	private static final Logger LOG = LoggerFactory.getLogger(NBOutputPerWindowOperator.class);
+  @SuppressWarnings("unused")
+  private static final Logger LOG = LoggerFactory.getLogger(NBOutputPerWindowOperator.class);
 
-	String tuple = "";
-	NBConfig nbc = null;
-	transient FSDataOutputStream[] kFoldOuts = null;
-	transient FSDataOutputStream trainOut = null;
-	transient FSDataOutputStream evalOut = null;
-	transient FileSystem fs = null;
+  String tuple = "";
+  NBConfig nbc = null;
+  transient FSDataOutputStream[] kFoldOuts = null;
+  transient FSDataOutputStream trainOut = null;
+  transient FSDataOutputStream evalOut = null;
+  transient FileSystem fs = null;
 
-	int folds;
-	String[] xmlModels;
-	boolean changeInWindow = false;
+  int folds;
+  String[] xmlModels;
+  boolean changeInWindow = false;
 
-	public NBOutputPerWindowOperator(){
-	}
+  public NBOutputPerWindowOperator(){
+  }
 
-	public NBOutputPerWindowOperator(NBConfig nbc){
-		this.nbc = nbc;
-	}
+  public NBOutputPerWindowOperator(NBConfig nbc){
+    this.nbc = nbc;
+  }
 
-	// For Only Evaluation
-	public final transient DefaultInputPort<String> inStringWriter = 
-			new DefaultInputPort<String>() {
-		@Override
-		public void process(String tuple) {
-			if(tuple != null && tuple.trim().length() != 0){
-				writeData(nbc.getOutputResultDir(), nbc.getOutputResultFileName(), false, tuple);
-			}
-		}
-	};
+  // For Only Evaluation
+  public final transient DefaultInputPort<String> inStringWriter = 
+      new DefaultInputPort<String>() {
+    @Override
+    public void process(String tuple) {
+      if(tuple != null && tuple.trim().length() != 0){
+        writeData(nbc.getOutputResultDir(), nbc.getOutputResultFileName(), false, tuple);
+      }
+    }
+  };
 
-	// Training. K fold or plain training
-	public final transient DefaultInputPort<MapEntry<Integer, String>> inMultiWriter = 
-			new DefaultInputPort<MapEntry<Integer, String>>() {
-		@Override
-		public void process(MapEntry<Integer, String> xmlModel) {
-			if(xmlModel.getV() == null){
-				LOG.info("Received Training Done signal");
-				writeModels();
-				try{
-					//Write done file
-					Path doneFile = new Path("/.done");
-					Configuration conf = new Configuration();
-//					conf.addResource(new Path("/usr/local/hadoop/etc/hadoop/core-site.xml"));
-					FileSystem fs = FileSystem.get(conf);
-					fs.create(doneFile);
-				}catch(IOException e){
-					e.printStackTrace();
-					throw new RuntimeException();
-				}
-				return;
-			}
-			if(nbc.isKFoldPartition() && !xmlModel.getK().equals(-1)){ // Only Store. Write at end window
-				int fold = xmlModel.getK();
-				xmlModels[fold] = xmlModel.getV();
-				changeInWindow = true;
-			}
-			if(nbc.isOnlyTrain() && xmlModel.getK().equals(-1)){ // Only Store. Write at end window
-				tuple = xmlModel.getV();
-				changeInWindow = true;
-			}
-		}
-	};
+  // Training. K fold or plain training
+  public final transient DefaultInputPort<MapEntry<Integer, String>> inMultiWriter = 
+      new DefaultInputPort<MapEntry<Integer, String>>() {
+    @Override
+    public void process(MapEntry<Integer, String> xmlModel) {
+      if(xmlModel.getV() == null){
+        LOG.debug("Training Done");
+        writeModels();
+        try{
+          //Write done file
+          Path doneFile = new Path(nbc.getOutputModelDir() + Path.SEPARATOR + ".done");
+          Configuration conf = new Configuration();
+          FileSystem fs = FileSystem.get(conf);
+          fs.create(doneFile);
+        }catch(IOException e){
+          e.printStackTrace();
+          throw new RuntimeException();
+        }
+        return;
+      }
+      if(nbc.isKFoldPartition() && !xmlModel.getK().equals(-1)){ // Only Store. Write at end window
+        int fold = xmlModel.getK();
+        xmlModels[fold] = xmlModel.getV();
+        changeInWindow = true;
+      }
+      if(nbc.isOnlyTrain() && xmlModel.getK().equals(-1)){ // Only Store. Write at end window
+        tuple = xmlModel.getV();
+        changeInWindow = true;
+      }
+    }
+  };
 
+  @Override
+  public void setup(OperatorContext context){
+    try {
+      fs = getFSInstance();
+    } catch (IOException e) {
+      e.printStackTrace();
+    }
+    if(nbc.isKFoldPartition()){
+      folds = nbc.getNumFolds();
+      xmlModels = new String[folds];
+      kFoldOuts = new FSDataOutputStream[folds];
+    }
+  }
+  
+  @Override
+  public void teardown() {
+    super.teardown();
+    try {
+      fs.close();
+    } catch (IOException e) {
+      throw new RuntimeException(e);
+    }
+  }
 
-//	public final transient DefaultInputPort<Boolean> inDone = 
-//			new DefaultInputPort<Boolean>() {
-//
-//		@Override
-//		public void process(Boolean b) {
-//			if(b.equals(true)){
-//			}
-//		}	
-//	};
+  @Override
+  public void endWindow(){
+    if(changeInWindow){
+      changeInWindow = false;
+    }
+  }
 
-	@Override
-	public void setup(OperatorContext context){
-		try {
-			fs = getFSInstance();
-		} catch (IOException e) {
-			e.printStackTrace();
-		}
-		if(nbc.isKFoldPartition()){
-			folds = nbc.getNumFolds();
-			xmlModels = new String[folds];
-			kFoldOuts = new FSDataOutputStream[folds];
-		}
-	}
-	
-	@Override
-	public void teardown() {
-		super.teardown();
-		try {
-			fs.close();
-		} catch (IOException e) {
-			e.printStackTrace();
-		}
-	}
+  public void writeModels(){
+    if(nbc.isKFoldPartition()){
+      for(int i=0;i<xmlModels.length;i++){
+        writeData(nbc.getOutputModelDir(), nbc.getOutputModelFileName()+"."+i, true, xmlModels[i]);
+      }
+    }
+    if(nbc.isOnlyTrain()){      
+      writeData(nbc.getOutputModelDir(), nbc.getOutputModelFileName(), true, tuple);
+    }
+  }
+  
+  public void writeData(String filePath, String fileName, boolean overwrite, String tuple){
 
-	@Override
-	public void endWindow(){
-		if(changeInWindow){
-			changeInWindow = false;
-		}
-	}
+    FSDataOutputStream out = null;
+    try {
+      Path writePath = new Path(filePath + Path.SEPARATOR + fileName);
+      if(overwrite){
+        out = fs.create(writePath, overwrite);
+      }
+      else{
+        if(fs.exists(writePath)){
+          out = fs.append(writePath);
+        }
+        else{
+          out = fs.create(writePath, overwrite);
+        }
+      }
 
-	public void writeModels(){
-		if(nbc.isKFoldPartition()){
-			for(int i=0;i<xmlModels.length;i++){
-				writeData(nbc.getOutputModelDir(), nbc.getOutputModelFileName()+"."+i, true, xmlModels[i]);
-			}
-		}
-		if(nbc.isOnlyTrain()){			
-			writeData(nbc.getOutputModelDir(), nbc.getOutputModelFileName(), true, tuple);
-		}
-	}
-	
-	public void writeData(String filePath, String fileName, boolean overwrite, String tuple){
+      out.writeBytes(tuple);
+      out.hflush();
+      out.close();
 
-		FSDataOutputStream out = null;
-		try {
-			Path writePath = new Path(filePath + Path.SEPARATOR + fileName);
-			if(overwrite){
-				out = fs.create(writePath, overwrite);
-			}
-			else{
-				if(fs.exists(writePath)){
-					out = fs.append(writePath);
-				}
-				else{
-					out = fs.create(writePath, overwrite);
-				}
-			}
+    } catch (IOException e) {
+      e.printStackTrace();
+    }  
+  }
 
-			out.writeBytes(tuple);
-			out.hflush();
-			out.close();
-
-		} catch (IOException e) {
-			e.printStackTrace();
-		}	
-	}
-
-	public FileSystem getFSInstance() throws IOException
-	{
-		Configuration conf = new Configuration();
-//		conf.addResource(new Path("/usr/local/hadoop/etc/hadoop/core-site.xml"));
-		return FileSystem.get(conf);
-	}
+  public FileSystem getFSInstance() throws IOException
+  {
+    Configuration conf = new Configuration();
+    return FileSystem.get(conf);
+  }
 
 
 }
