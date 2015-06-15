@@ -36,12 +36,14 @@ public class NBOutputPerWindowOperator extends BaseOperator {
   int folds;
   String[] xmlModels;
   boolean changeInWindow = false;
+  StringBuilder dataToWrite;
 
   public NBOutputPerWindowOperator(){
   }
 
   public NBOutputPerWindowOperator(NBConfig nbc){
     this.nbc = nbc;
+    dataToWrite = new StringBuilder();
   }
 
   // For Only Evaluation
@@ -50,7 +52,9 @@ public class NBOutputPerWindowOperator extends BaseOperator {
     @Override
     public void process(String tuple) {
       if(tuple != null && tuple.trim().length() != 0){
-        writeData(nbc.getOutputResultDir(), nbc.getOutputResultFileName(), false, tuple);
+        dataToWrite.append(tuple);
+        changeInWindow = true;
+        //writeData(nbc.getOutputResultDir(), nbc.getOutputResultFileName(), false, tuple);
       }
     }
   };
@@ -136,6 +140,10 @@ public class NBOutputPerWindowOperator extends BaseOperator {
   public void endWindow(){
     if(changeInWindow){
       changeInWindow = false;
+      if(dataToWrite != null && dataToWrite.toString().trim().length() > 0){
+        writeData(nbc.getOutputResultDir(), nbc.getOutputResultFileName(), false, dataToWrite.toString());
+        dataToWrite = new StringBuilder();
+      }
     }
   }
 
